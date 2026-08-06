@@ -2,8 +2,6 @@ name: Deploy to VM
 
 on:
   workflow_dispatch:
-    # Disparo manual pelo GitHub Actions UI:
-    #   equipe-sudo/infrastructure → Actions → Deploy to VM → Run workflow
 
 jobs:
   deploy:
@@ -11,12 +9,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy files to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_PUBLIC_IP }}
+          username: opc
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: docker/*
+          target: /home/opc/slots/
+          strip_components: 1
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VM_PUBLIC_IP }}
           username: opc
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: CLOUDFLARE_TUNNEL_TOKEN
           script: |
             cd /home/opc/slots
 
@@ -27,10 +39,16 @@ jobs:
             # Pull das imagens mais recentes
             docker compose pull
 
-            # Restart dos serviços com as novas imagens
-            docker compose up -d --remove-orphans
+            # Deploy com Cloudflare Tunnel
+            CLOUDFLARE_TUNNEL_TOKEN="${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" \
+              docker compose up -d --remove-orphans
 
             # Limpeza de imagens antigas
             docker image prune -f
 
+            # Status final
+            echo ""
+            echo "=== Containers ==="
+            docker compose ps
+            echo ""
             echo "✓ Deploy concluído — $(date)"
