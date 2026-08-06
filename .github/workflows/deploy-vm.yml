@@ -28,20 +28,22 @@ jobs:
           host: ${{ secrets.VM_PUBLIC_IP }}
           username: opc
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: CLOUDFLARE_TUNNEL_TOKEN
+          envs: CLOUDFLARE_TUNNEL_TOKEN,OCIR_AUTH_TOKEN,OCIR_USERNAME
           script: |
             cd /home/opc/slots
 
+            # Salva token do Cloudflare Tunnel no .env local (persiste entre deploys)
+            echo "CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TUNNEL_TOKEN" > .env
+
             # Login no OCIR para pull das imagens
-            echo "${{ secrets.OCIR_AUTH_TOKEN }}" | \
-              docker login gru.ocir.io -u ${{ secrets.OCIR_USERNAME }} --password-stdin
+            echo "$OCIR_AUTH_TOKEN" | \
+              docker login gru.ocir.io -u "$OCIR_USERNAME" --password-stdin
 
             # Pull das imagens mais recentes
             docker compose pull
 
-            # Deploy com Cloudflare Tunnel
-            CLOUDFLARE_TUNNEL_TOKEN="${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" \
-              docker compose up -d --remove-orphans
+            # Deploy
+            docker compose up -d --remove-orphans
 
             # Limpeza de imagens antigas
             docker image prune -f
