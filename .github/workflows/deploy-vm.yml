@@ -12,6 +12,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Gerar .env para Cloudflare Tunnel
+        run: |
+          cat > docker/.env << 'EOF'
+          CLOUDFLARE_TUNNEL_TOKEN=${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          EOF
+
       - name: Copy files to VM
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -28,16 +34,12 @@ jobs:
           host: ${{ secrets.VM_PUBLIC_IP }}
           username: opc
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: CLOUDFLARE_TUNNEL_TOKEN,OCIR_AUTH_TOKEN,OCIR_USERNAME
           script: |
             cd /home/opc/slots
 
-            # Salva token do Cloudflare Tunnel no .env local (persiste entre deploys)
-            echo "CLOUDFLARE_TUNNEL_TOKEN=$CLOUDFLARE_TUNNEL_TOKEN" > .env
-
             # Login no OCIR para pull das imagens
-            echo "$OCIR_AUTH_TOKEN" | \
-              docker login gru.ocir.io -u "$OCIR_USERNAME" --password-stdin
+            echo "${{ secrets.OCIR_AUTH_TOKEN }}" | \
+              docker login gru.ocir.io -u ${{ secrets.OCIR_USERNAME }} --password-stdin
 
             # Pull das imagens mais recentes
             docker compose pull
@@ -53,4 +55,5 @@ jobs:
             echo "=== Containers ==="
             docker compose ps
             echo ""
+            echo "✓ Deploy concluído — $(date)"
             echo "✓ Deploy concluído — $(date)"
