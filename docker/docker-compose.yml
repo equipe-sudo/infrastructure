@@ -1,0 +1,91 @@
+# ============================================
+# Docker Compose — Jogo de Slots (equipe-sudo)
+# ============================================
+# Arquitetura com Cloudflare Tunnel:
+#   Internet → Cloudflare (kolpzs.com) → Tunnel → cloudflared → nginx:80
+#   Nenhuma porta exposta para internet além de SSH:22
+#
+# Login no OCIR antes de rodar:
+#   docker login gru.ocir.io -u grhkdi3glvat/kolpzs@gmail.com
+#   (senha = auth token OCI)
+#
+# Uso:
+#   docker compose pull
+#   docker compose up -d
+#   docker compose ps
+
+version: "3.8"
+
+services:
+  # ==========================================
+  # Cloudflare Tunnel — conecta kolpzs.com à VM
+  # ==========================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: slots-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - slots-net
+    # Sem portas expostas — comunicação outbound-only para Cloudflare edge
+
+  # ==========================================
+  # Banco de Dados (interno, sem porta exposta)
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: slots-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-slots}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-slots123}
+      POSTGRES_DB: ${POSTGRES_DB:-slots_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-slots}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - slots-net
+
+  # ==========================================
+  # Backend FastAPI (interno, sem porta exposta)
+  # ==========================================
+  backend:
+    image: ${BACKEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-backend:latest}
+    container_name: slots-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-slots}:${POSTGRES_PASSWORD:-slots123}@postgres:5432/${POSTGRES_DB:-slots_db}
+      HOST: 0.0.0.0
+      PORT: 8000
+      SALDO_INICIAL: ${SALDO_INICIAL:-100.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - slots-net
+
+  # ==========================================
+  # Nginx — serve frontend + proxy backend
+  # ==========================================
+  frontend:
+    image: ${FRONTEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-frontend:latest}
+    container_name: slots-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - slots-net
+
+volumes:
+  pgdata:
+    name: slots-pgdata
+
+networks:
+  slots-net:
+    name: slots-net
+    driver: bridge
