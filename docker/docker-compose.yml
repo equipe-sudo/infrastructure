@@ -2,12 +2,8 @@
 # Docker Compose — Jogo de Slots (equipe-sudo)
 # ============================================
 # Arquitetura com Cloudflare Tunnel:
-#   Internet → Cloudflare (kolpzs.com) → Tunnel → cloudflared → nginx:80
+#   Internet → Cloudflare → Tunnel → cloudflared → equipe-sudo.kolpzs.com
 #   Nenhuma porta exposta para internet além de SSH:22
-#
-# Login no OCIR antes de rodar:
-#   docker login gru.ocir.io -u grhkdi3glvat/kolpzs@gmail.com
-#   (senha = auth token OCI)
 #
 # Uso:
 #   docker compose pull
