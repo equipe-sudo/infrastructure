@@ -1,0 +1,36 @@
+name: Deploy to VM
+
+on:
+  workflow_dispatch:
+    # Disparo manual pelo GitHub Actions UI:
+    #   equipe-sudo/infrastructure → Actions → Deploy to VM → Run workflow
+
+jobs:
+  deploy:
+    name: Deploy to VM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_PUBLIC_IP }}
+          username: opc
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/opc/slots
+
+            # Login no OCIR para pull das imagens
+            echo "${{ secrets.OCIR_AUTH_TOKEN }}" | \
+              docker login gru.ocir.io -u ${{ secrets.OCIR_USERNAME }} --password-stdin
+
+            # Pull das imagens mais recentes
+            docker compose pull
+
+            # Restart dos serviços com as novas imagens
+            docker compose up -d --remove-orphans
+
+            # Limpeza de imagens antigas
+            docker image prune -f
+
+            echo "✓ Deploy concluído — $(date)"
