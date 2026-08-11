@@ -1,0 +1,96 @@
+============================================
+  EQUIPE SUDO — PRIMEIRO CONTATO OFICIAL
+  DevOps — Primeiro Deploy em Nuvem
+============================================
+
+Data: 28/07/2026
+Entrega: 07/08/2026 (22:00)
+Prazo: 10 dias
+
+---
+
+Pessoal,
+
+Conforme conversamos, organizei o quadro do Trello 
+(https://trello.com/b/GrZTNYh8/equipe-sudo) com todas as 
+atividades que precisamos entregar até 07/08 às 22:00.
+
+Já temos os repositórios no GitHub (equipe-sudo) e a conta 
+na Oracle Cloud (Always Free) configurada.
+
+---
+
+RESPONSABILIDADES DE CADA UM
+
+--- João Pedro ---
+Frente A — Infraestrutura (dono da infra)
+  · Provisionar VCN, sub-redes, firewall
+  · Criar VM A1.Flex (Ubuntu + Docker)
+  · Configurar Docker, Ansible, Docker Compose
+  · Configurar Object Storage (tfstate)
+  · Volume persistente PostgreSQL
+  · Diagrama da arquitetura
+  · Justificativas técnicas das escolhas
+
+--- Allan ---
+Frente B — Backend (Jogo de Slots)
+  · API em Python (FastAPI) — estrutura do projeto
+  · RNG + lógica de sorteio (grade 5×3)
+  · Detecção de prêmio e cálculo de ganhos
+  · Tabela de pagamentos (símbolos × multiplicadores)
+  · API de aposta: POST /girar (sortear, debitar, creditar)
+  · API de depósito e reset de saldo
+  · API de histórico de giros
+  · Containerizar backend (Dockerfile)
+  · Documentar API com Swagger
+
+--- Josi ---
+Frente C — Frontend + BD (Jogo de Slots)
+  · Frontend: tecnologia (React/Vue/vanilla)
+  · Tela do jogo: grade 5×3 com símbolos + botão Girar
+  · Animação do giro + destaque de linha vencedora
+  · Ajuste de aposta (+/– e MÁX) + giro automático
+  · Exibir saldo + botões Depositar e Redefinir
+  · Painel de tabela de pagamentos
+  · Jackpot, feed de ganhos, vitrine, temas visuais
+  · Containerizar frontend (Dockerfile + Nginx)
+  · BD: DER + schema SQL (usuario, giro, transacao)
+  · Seed data + dicionário de dados
+  · Validar persistência pós-restart
+
+--- Fer + Thiago ---
+Frente D — Gestão (coringas da gestão)
+  · Manter o Trello organizado
+  · Priorizar as tarefas no backlog
+  · Acompanhar daily e desbloquear o time
+  · Relatório final com evidências
+  · Apresentação para a turma
+  · Validar entrega completa antes do prazo
+
+---
+
+⚠️ MUDANÇA DE ESCOPO (28/07)
+
+A PO Fernanda definiu o tema: em vez de um CRUD genérico,
+vamos construir um **JOGO DE CAÇA-NÍQUEL (SLOTS)**!
+
+- Mesma infra (VCN, VM, Docker, PostgreSQL) — João segue igual
+- Backend vira motor de jogo: RNG, prêmios, apostas, saldo
+- Frontend vira a máquina caça-níquel: grade 5×3, giro, animações
+- BD vira: usuario, giro, transacao (em vez de entidades genéricas)
+
+Os cards no Trello já foram atualizados — confiram seus cards!
+
+---
+
+PRÓXIMOS PASSOS
+
+1. Cada um olhar seus NOVOS cards no Trello (tema slots!)
+2. Vamos definir os prazos internos em uma rápida call
+3. Começar pelos P0 (prioridade máxima) de cada área
+4. Qualquer dúvida, me chamem
+
+Vamos com tudo! 🎰💪
+
+[]'s,
+Scrum Master

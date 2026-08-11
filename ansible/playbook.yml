@@ -1,0 +1,107 @@
+# ============================================
+# Ansible — Playbook de Setup da VM
+# ============================================
+# Otimizado para VM de 1 GB RAM (E2.1.Micro).
+# Usa shell + dnf CLI em vez do módulo dnf (que consome ~600 MB Python).
+#
+# Uso:
+#   ansible-playbook -i inventory.yml playbook.yml
+
+---
+- name: Configurar VM para Jogo de Slots
+  hosts: vm
+  become: yes
+  vars:
+    dnf_opts: "--setopt=tsflags=nodocs --setopt=install_weak_deps=False"
+    compose_version: "v2.24.0"
+
+  tasks:
+    # ---------------------------------------------------------------
+    # 1. Swap — já criado na primeira execução, skipa nas seguintes
+    # ---------------------------------------------------------------
+    - name: Criar swap de 2 GB (segurança para 1 GB RAM)
+      shell: |
+        if ! swapon --show | grep -q /swapfile; then
+          dd if=/dev/zero of=/swapfile bs=1M count=2048
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+        fi
+      args:
+        creates: /swapfile
+
+    # ---------------------------------------------------------------
+    # 2. Dependências do sistema — shell leve em vez de módulo dnf
+    # ---------------------------------------------------------------
+    - name: Instalar git
+      shell: rpm -q git || dnf install -y {{ dnf_opts }} git
+      register: _git
+      changed_when: "'instal' in _git.stdout or 'Nothing to do' not in _git.stdout"
+
+    - name: Instalar curl
+      shell: rpm -q curl || dnf install -y {{ dnf_opts }} curl
+      register: _curl
+      changed_when: "'instal' in _curl.stdout or 'Nothing to do' not in _curl.stdout"
+
+    - name: Instalar python3 + pip
+      shell: rpm -q python3 || dnf install -y {{ dnf_opts }} python3 python3-pip
+      register: _py
+      changed_when: "'instal' in _py.stdout or 'Nothing to do' not in _py.stdout"
+
+    # ---------------------------------------------------------------
+    # 3. Docker — repo + engine
+    # ---------------------------------------------------------------
+    - name: Adicionar repositório Docker
+      shell: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Instalar Docker Engine
+      shell: |
+        rpm -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+          || dnf install -y {{ dnf_opts }} docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      register: _docker
+      changed_when: "'instal' in _docker.stdout or 'Nothing to do' not in _docker.stdout"
+
+    - name: Iniciar e habilitar Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Adicionar usuário opc ao grupo docker
+      user:
+        name: opc
+        groups: docker
+        append: yes
+
+    # ---------------------------------------------------------------
+    # 4. Verificação
+    # ---------------------------------------------------------------
+    - name: Verificar Docker
+      command: docker --version
+      register: docker_ver
+      changed_when: false
+
+    - name: Verificar Docker Compose
+      command: docker compose version
+      register: compose_ver
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Exibir versões
+      debug:
+        msg:
+          - "Docker:    {{ docker_ver.stdout }}"
+          - "Compose:   {{ compose_ver.stdout | default('via plugin') }}"
+          - "Git:       {{ _git.stdout | default('ok') }}"
+          - "Python:    {{ _py.stdout | default('ok') }}"
+
+    - name: Criar diretório do projeto
+      file:
+        path: /home/opc/slots
+        state: directory
+        owner: opc
+        group: opc
+        mode: '0755'
