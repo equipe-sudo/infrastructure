@@ -9,6 +9,16 @@ on:
     branches: [main]
     paths:
       - "terraform/**"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Modo do Terraform"
+        required: true
+        type: choice
+        default: "apply"
+        options:
+          - plan
+          - apply
 
 permissions:
   contents: read
@@ -20,7 +30,7 @@ jobs:
   # ==========================================
   terraform-plan:
     name: Terraform Plan
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'plan')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -68,11 +78,11 @@ jobs:
             -var="oci_fingerprint=${{ secrets.OCI_FINGERPRINT }}" \
             -var="oci_private_key_path=~/.oci/oci_api_key.pem" \
             -var="oci_region=${{ secrets.OCI_REGION }}" \
-            -var="ssh_public_key_path=~/.ssh/id_rsa.pub"
+            -var="ssh_public_key_path=~/.ssh/id_rsa.pub" | tee tfplan.txt
 
       - name: Publicar plano no PR
         uses: actions/github-script@v7
-        if: always()
+        if: github.event_name == 'pull_request'
         with:
           script: |
             const fs = require('fs');
@@ -90,7 +100,7 @@ jobs:
   # ==========================================
   terraform-apply:
     name: Terraform Apply
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'apply')
     runs-on: ubuntu-latest
     defaults:
       run:
