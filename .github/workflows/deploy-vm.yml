@@ -37,9 +37,9 @@ jobs:
           script: |
             cd /home/opc/slots
 
-            # Login no OCIR para pull das imagens
-            echo "${{ secrets.OCIR_AUTH_TOKEN }}" | \
-              docker login gru.ocir.io -u ${{ secrets.OCIR_USERNAME }} --password-stdin
+            # Login no GHCR para pull das imagens privadas
+            echo "${{ secrets.GHCR_TOKEN }}" | \
+              docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
 
             # Pull das imagens mais recentes
             docker compose pull

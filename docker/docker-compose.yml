@@ -53,7 +53,7 @@ services:
   # Backend Express (interno, sem porta exposta)
   # ==========================================
   backend:
-    image: ${BACKEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-backend:latest}
+    image: ${BACKEND_IMAGE:-ghcr.io/equipe-sudo/equipe-sudo-backend:latest}
     container_name: todo-backend
     restart: unless-stopped
     environment:
@@ -70,7 +70,7 @@ services:
   # Nginx — serve frontend + proxy backend
   # ==========================================
   frontend:
-    image: ${FRONTEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-frontend:latest}
+    image: ${FRONTEND_IMAGE:-ghcr.io/equipe-sudo/equipe-sudo-frontend:latest}
     container_name: todo-frontend
     restart: unless-stopped
     depends_on:
