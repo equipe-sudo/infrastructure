@@ -1,11 +1,12 @@
 # ============================================
-# Terraform — Compute (VM E2.1.Micro)
+# Terraform — Compute (VM.Standard.A1.Flex Always Free)
 # ============================================
 
-# --- Imagem Oracle Linux 8 (x86_64) ---
+# --- Imagem Oracle Linux 8 compatível com o shape escolhido ---
 data "oci_core_images" "oracle_linux" {
   compartment_id   = var.oci_tenancy_ocid
   operating_system = "Oracle Linux"
+  shape            = var.vm_shape
 
   filter {
     name   = "display_name"
@@ -22,12 +23,17 @@ data "oci_identity_availability_domains" "ads" {
   compartment_id = var.oci_tenancy_ocid
 }
 
-# --- VM E2.1.Micro (Always Free AMD) ---
+# --- VM Ampere A1.Flex (Always Free ARM) ---
 resource "oci_core_instance" "main" {
   compartment_id      = var.oci_tenancy_ocid
   availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
   display_name        = "vm-${var.tag_project}-${var.tag_environment}"
   shape               = var.vm_shape
+
+  shape_config {
+    ocpus         = var.vm_ocpus
+    memory_in_gbs = var.vm_memory_gb
+  }
 
   source_details {
     source_id   = data.oci_core_images.oracle_linux.images[0].id

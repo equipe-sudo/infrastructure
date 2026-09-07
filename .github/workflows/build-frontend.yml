@@ -14,17 +14,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout frontend
+      - name: Checkout app fork
         uses: actions/checkout@v4
         with:
-          repository: equipe-sudo/frontend
+          repository: equipe-sudo/aula-uniamerica-infraestrutura-cloud
           ref: main
           token: ${{ secrets.CI_PAT }}
-          path: frontend
+          path: app
 
-      - name: Capturar SHA do frontend
+      - name: Capturar SHA do app
         id: meta
-        run: echo "sha=$(git -C frontend rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "sha=$(git -C app rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Login OCIR
         uses: docker/login-action@v3
@@ -36,8 +36,9 @@ jobs:
       - name: Build & Push
         uses: docker/build-push-action@v6
         with:
-          context: frontend
+          context: app/frontend
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.OCIR_REGISTRY }}/${{ env.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.sha }}
