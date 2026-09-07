@@ -8,7 +8,7 @@
 #   ansible-playbook -i inventory.yml playbook.yml
 
 ---
-- name: Configurar VM para Jogo de Slots
+- name: Configurar VM para Todo App Cloud
   hosts: vm
   become: yes
   vars:

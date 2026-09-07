@@ -1,5 +1,5 @@
 # ============================================
-# Docker Compose — Jogo de Slots (equipe-sudo)
+# Docker Compose — Todo App Cloud (equipe-sudo)
 # ============================================
 # Arquitetura com Cloudflare Tunnel:
 #   Internet → Cloudflare → Tunnel → cloudflared → equipe-sudo.kolpzs.com
@@ -18,70 +18,71 @@ services:
   # ==========================================
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: slots-tunnel
+    container_name: todo-tunnel
     restart: unless-stopped
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     networks:
-      - slots-net
+      - app-net
     # Sem portas expostas — comunicação outbound-only para Cloudflare edge
 
   # ==========================================
-  # Banco de Dados (interno, sem porta exposta)
+  # Banco de Dados MongoDB (interno, sem porta exposta)
   # ==========================================
-  postgres:
-    image: postgres:16-alpine
-    container_name: slots-postgres
+  mongo:
+    image: mongo:7
+    container_name: todo-mongo
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-slots}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-slots123}
-      POSTGRES_DB: ${POSTGRES_DB:-slots_db}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-rootpassword}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-todo-app}
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mongo-data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-slots}"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - slots-net
+      app-net:
+        aliases:
+          - mongo-todo
 
   # ==========================================
-  # Backend FastAPI (interno, sem porta exposta)
+  # Backend Express (interno, sem porta exposta)
   # ==========================================
   backend:
     image: ${BACKEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-backend:latest}
-    container_name: slots-backend
+    container_name: todo-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-slots}:${POSTGRES_PASSWORD:-slots123}@postgres:5432/${POSTGRES_DB:-slots_db}
+      MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-root}:${MONGO_INITDB_ROOT_PASSWORD:-rootpassword}@mongo:27017/${MONGO_INITDB_DATABASE:-todo-app}?authSource=admin
       HOST: 0.0.0.0
-      PORT: 8000
-      SALDO_INICIAL: ${SALDO_INICIAL:-100.0}
+      PORT: 5000
     depends_on:
-      postgres:
+      mongo:
         condition: service_healthy
     networks:
-      - slots-net
+      app-net:
 
   # ==========================================
   # Nginx — serve frontend + proxy backend
   # ==========================================
   frontend:
     image: ${FRONTEND_IMAGE:-gru.ocir.io/grhkdi3glvat/equipe-sudo/equipe-sudo-frontend:latest}
-    container_name: slots-frontend
+    container_name: todo-frontend
     restart: unless-stopped
     depends_on:
       - backend
     networks:
-      - slots-net
+      app-net:
 
 volumes:
-  pgdata:
-    name: slots-pgdata
+  mongo-data:
+    name: todo-mongo-data
 
 networks:
-  slots-net:
-    name: slots-net
+  app-net:
+    name: todo-app-net
     driver: bridge

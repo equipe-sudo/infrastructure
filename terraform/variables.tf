@@ -51,18 +51,33 @@ variable "vm_shape" {
   description = "Shape da VM"
   type        = string
   default     = "VM.Standard.A1.Flex"
+
+  validation {
+    condition     = var.vm_shape == "VM.Standard.A1.Flex"
+    error_message = "Use VM.Standard.A1.Flex para obter o maior limite Always Free: ate 4 OCPUs e 24 GB RAM."
+  }
 }
 
 variable "vm_ocpus" {
-  description = "Número de OCPUs"
+  description = "Número de OCPUs da VM A1.Flex. No Always Free, o limite total é 4 OCPUs."
   type        = number
   default     = 2
+
+  validation {
+    condition     = var.vm_ocpus >= 1 && var.vm_ocpus <= 4
+    error_message = "vm_ocpus deve ficar entre 1 e 4 para respeitar o limite Always Free do A1.Flex."
+  }
 }
 
 variable "vm_memory_gb" {
-  description = "Memória RAM em GB"
+  description = "Memória RAM em GB da VM A1.Flex. No Always Free, o limite total é 24 GB."
   type        = number
   default     = 12
+
+  validation {
+    condition     = var.vm_memory_gb >= 1 && var.vm_memory_gb <= 24
+    error_message = "vm_memory_gb deve ficar entre 1 e 24 para respeitar o limite Always Free do A1.Flex."
+  }
 }
 
 variable "ssh_public_key_path" {
