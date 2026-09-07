@@ -35,6 +35,7 @@ jobs:
           username: opc
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -euo pipefail
             cd /home/opc/slots
 
             # Login no GHCR para pull das imagens privadas
