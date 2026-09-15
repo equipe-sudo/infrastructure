@@ -38,6 +38,8 @@ e **correções necessárias** encontradas ao evoluir a infraestrutura:
 | 7 | Correção: o `terraform plan` tentava alterar `shape_config` (1→2 OCPU / 1→12 GB) e trocar a imagem de boot da VM em execução | Risco de recriar a VM e **perder o volume do MongoDB** |
 | 8 | Correção: workflows do repo da aplicação buildavam `linux/arm64`, incompatível com a VM AMD | As imagens publicadas precisam ser `linux/amd64` |
 | 9 | Estado do Terraform migrado para o **OCI Object Storage** (backend nativo `oci`, com locking) | Permitir `terraform apply` no GitHub Actions, sem depender do estado local de uma máquina |
+| 10 | Front-end migrado para o **Cloudflare Pages** (SPA na edge) — serverless e distribuído | Atender os requisitos de **serviços serverless** e **redundância do front-end** herdados da Entrega 01 |
+| 11 | **Pages Function** em `/api/*` + hostname de origem `api-equipe-sudo.kolpzs.com` protegido por **Access (Service Token)** | O back-end continua na OCI e protegido; a edge passa a ser a entrada do front-end |
 
 O diagrama foi atualizado para representar o ambiente final (seção 4).
 
@@ -92,6 +94,10 @@ VS Code com extensão Mermaid ou <https://mermaid.live>) e **`diagrama-entrega-f
 | Domínio do front-end/API | `equipe-sudo.kolpzs.com` |
 | Domínio do Grafana | `grafana-equipe-sudo.kolpzs.com` |
 | Containers da aplicação | `todo-tunnel`, `todo-frontend`, `todo-backend`, `todo-mongo` (rede `todo-app-net`) |
+| Front-end na edge | **Cloudflare Pages** (projeto `equipe-sudo-frontend`) — SPA React em múltiplos PoPs |
+| Proxy da API na edge | **Pages Function** `functions/api/[[path]].js` |
+| Origem da API (privada ao navegador) | `api-equipe-sudo.kolpzs.com` → túnel `sudo` → `http://frontend:80` |
+| Credencial da Function para a origem | **Service Token** do Cloudflare Access (`pages-api-origin`) |
 | Containers da observabilidade | `obs-tunnel`, `obs-otel-collector`, `obs-prometheus`, `obs-loki`, `obs-grafana` (rede `obs-net`) |
 | Origem das chamadas à API | **Navegador do usuário** → `/api/*` no mesmo domínio (não há chamada server-side do front-end) |
 
@@ -99,7 +105,9 @@ VS Code com extensão Mermaid ou <https://mermaid.live>) e **`diagrama-entrega-f
 
 | Caminho | Protocolo / porta | Terminação TLS |
 |---|---|---|
-| Usuário → Cloudflare | HTTPS 443 | **Cloudflare edge** |
+| Usuário → Cloudflare (SPA) | HTTPS 443 | **Cloudflare edge** (Pages) |
+| Usuário → Cloudflare (`/api/*`) | HTTPS 443 | **Cloudflare edge** (Pages Function) |
+| Pages Function → origem da API | HTTPS 443 + Service Token | **Cloudflare edge** |
 | Cloudflare → `cloudflared` | QUIC (conexão de **saída** da VM) | Cloudflare |
 | `cloudflared` → `nginx` | HTTP 80 (rede Docker) | não aplicável (rede interna) |
 | `nginx` → backend | HTTP 5000 (rede Docker) | não aplicável |
@@ -155,7 +163,7 @@ Caminho completo, conforme exigido (componente → coleta → armazenamento → 
 |---|---|---|---|---|
 | Requisições, latência, erros, operações de negócio e de banco | **Backend** (SDK OpenTelemetry em `instrumentation.js` + `index.js`) | OTLP/HTTP → `obs-otel-collector:4318` → `remote_write` | **Prometheus** (15 dias) — PromQL | Painéis **3, 4, 5, 6, 7** |
 | Logs de aplicação | **Backend** (`logger.js`, JSON em stdout e LogRecord OTLP) | OTLP/HTTP → `obs-otel-collector:4318` → OTLP para Loki | **Loki** (30 dias) — LogQL | Painel **8** |
-| Disponibilidade pelo domínio | **OTel Collector** (receiver `http_check`, a cada 30 s) | interno ao Collector → `remote_write` | **Prometheus** | Painéis **1 e 2** |
+| Disponibilidade pelo domínio | **OTel Collector** (receiver `http_check`, a cada 30 s) | Collector → `https://equipe-sudo.kolpzs.com/api/health` (**edge/Pages Function**) → origem da API → backend; resultado por `remote_write` | **Prometheus** | Painéis **1 e 2** |
 
 **Serviço gerenciado que acumula funções:** o **OTel Collector** reúne coleta, transformação
 (processors `memory_limiter`, `batch`, `resource`) e **duas** verificações ativas de
@@ -607,7 +615,8 @@ Os deploys de **aplicação** e **observabilidade** agora são acionados automat
 |---|---|---|
 | Push na `main` que altera `docker/**` | Deploy da aplicação | `deploy-vm.yml` |
 | Push na `main` que altera `observability/**` | Deploy da stack | `deploy-observability.yml` |
-| Imagem nova publicada pelo repo da aplicação | Deploy da aplicação | `repository_dispatch: app-image-updated` |
+| Imagem nova publicada pelo repo da aplicação | Deploy da aplicação (origin) | `repository_dispatch: app-image-updated` |
+| Imagem nova publicada pelo repo da aplicação | Deploy do front-end na edge | `repository_dispatch: app-image-updated` → `deploy-pages.yml` |
 | Manual | Qualquer um | `workflow_dispatch` (continua disponível) |
 
 O caminho completo fica:
@@ -616,7 +625,8 @@ O caminho completo fica:
 push na main do repo da aplicação
    └─► "Build & Push Backend/Frontend" (linux/amd64) ──► GHCR
           └─► repository_dispatch: app-image-updated
-                 └─► "Deploy to VM" (pull + up -d)
+                 ├─► "Deploy to VM"       (origin: docker compose pull + up -d)
+                 └─► "Deploy Frontend (Cloudflare Pages)" (edge: build + wrangler pages deploy)
 ```
 
 Para isso, o repositório da **aplicação** precisa do secret **`CI_PAT`** (um token com escopo
@@ -702,11 +712,12 @@ grupo, após o merge):
 
 ## 12. Limitações declaradas (transparência)
 
-1. **Redundância de origem do front-end:** há **um** ponto de origem (nginx na VM da aplicação). A
-   redundância existe apenas na **edge do Cloudflare** (anycast). O requisito de redundância de
-   pontos de atendimento **não está implementado** nesta entrega; a evolução proposta é publicar o
-   front-end no **Cloudflare Pages** (múltiplas origens + failover). O diagrama não desenha réplicas
-   que não existem, conforme pede o enunciado.
+1. **Redundância do front-end:** o SPA é servido pelo **Cloudflare Pages**, que distribui o conteúdo
+   por **múltiplos pontos de presença (PoPs) da edge** — ou seja, o front-end tem atendimento
+   redundante e serverless. **Limitação honesta:** é uma redundância **gerenciada pelo provedor**
+   (não controlamos as réplicas); o que controlamos é o código publicado e o domínio. O back-end e o
+   banco continuam em **origem única** na VM (não há réplica de API/banco nesta entrega) — o diagrama
+   não desenha réplicas que não existem.
 2. **Logs do nginx não coletados:** apenas os logs do back-end chegam ao Loki. Erros ocorridos
    antes do Express (ex.: 502 do túnel) não aparecem no painel 8.
 3. **Sem traces:** o SDK está configurado com `OTEL_TRACES_EXPORTER=none` e não há backend de
