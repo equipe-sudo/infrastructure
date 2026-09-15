@@ -1,12 +1,5 @@
 # Documentação de Infraestrutura — CyberVegas (Equipe Sudo)
 
-> ⚠️ **DOCUMENTO HISTÓRICO / DESATUALIZADO.**
-> Este texto descreve a versão **antiga** da aplicação (CyberVegas: FastAPI + PostgreSQL +
-> Angular + OCIR). O ambiente atualmente em produção usa a **Todo App** (React + Node/Express +
-> MongoDB) com imagens no **GHCR** e Cloudflare Tunnel.
-> A documentação vigente está em **[`entrega-final-02/README.md`](entrega-final-02/README.md)** e
-> em **[`ENTREGA_ATIVIDADE_INFRAESTRUTURA.md`](ENTREGA_ATIVIDADE_INFRAESTRUTURA.md)**.
-
 > **Última atualização:** 2026-08-06
 > **Ambiente:** Produção (dev) em `equipe-sudo.kolpzs.com`
 
