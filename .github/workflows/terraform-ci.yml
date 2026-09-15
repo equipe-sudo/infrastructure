@@ -132,6 +132,20 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Verificar estado do Terraform (proteção)
+        run: |
+          if ! terraform state list 2>/dev/null | grep -q .; then
+            echo "::error::O estado do Terraform está VAZIO neste runner."
+            echo "O backend remoto não está configurado (bloco 'backend \"s3\"' comentado em main.tf),"
+            echo "logo o terraform.tfstate é local e não existe no CI."
+            echo "Executar 'terraform apply' aqui criaria TODA a infraestrutura do zero (nova VCN, novas VMs),"
+            echo "o que pode gerar custo. Abortando por segurança."
+            echo ""
+            echo "Opções: (1) rodar o apply localmente na máquina que tem o terraform.tfstate;"
+            echo "ou (2) habilitar o backend remoto (OCI Object Storage) antes de usar este job."
+            exit 1
+          fi
+
       - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
