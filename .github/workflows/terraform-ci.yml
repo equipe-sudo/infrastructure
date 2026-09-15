@@ -39,7 +39,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ">=1.5.0"
+          terraform_version: "1.16.2"
 
       - name: Configurar OCI CLI
         run: |
@@ -109,7 +109,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ">=1.5.0"
+          terraform_version: "1.16.2"
 
       - name: Configurar OCI CLI
         run: |
@@ -134,17 +134,19 @@ jobs:
 
       - name: Verificar estado do Terraform (proteção)
         run: |
+          # O estado agora é remoto (backend "oci" -> bucket equipe-sudo-tfstate).
+          # Esta checagem impede que um backend vazio/mal configurado faça o
+          # apply criar a infraestrutura do zero.
           if ! terraform state list 2>/dev/null | grep -q .; then
-            echo "::error::O estado do Terraform está VAZIO neste runner."
-            echo "O backend remoto não está configurado (bloco 'backend \"s3\"' comentado em main.tf),"
-            echo "logo o terraform.tfstate é local e não existe no CI."
-            echo "Executar 'terraform apply' aqui criaria TODA a infraestrutura do zero (nova VCN, novas VMs),"
-            echo "o que pode gerar custo. Abortando por segurança."
-            echo ""
-            echo "Opções: (1) rodar o apply localmente na máquina que tem o terraform.tfstate;"
-            echo "ou (2) habilitar o backend remoto (OCI Object Storage) antes de usar este job."
+            echo "::error::O estado do Terraform está VAZIO."
+            echo "Verifique se o backend 'oci' em terraform/main.tf está acessível e se as"
+            echo "credenciais OCI (OCI_TENANCY_OCID/OCI_USER_OCID/OCI_FINGERPRINT/OCI_CLI_KEY_CONTENT)"
+            echo "estão corretas. Sem estado, o apply criaria toda a infraestrutura do zero."
+            echo "Abortando por segurança."
             exit 1
           fi
+          echo "Estado encontrado:"
+          terraform state list
 
       - name: Terraform Apply
         run: |

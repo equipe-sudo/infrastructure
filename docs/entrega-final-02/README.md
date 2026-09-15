@@ -37,6 +37,7 @@ e **correções necessárias** encontradas ao evoluir a infraestrutura:
 | 6 | Correção: recursos legados de **OCIR** (`oci_artifacts_container_repository`) removidos do Terraform | A tenancy é Free Tier e a API retorna `403 FREE_TIER_NOT_SUPPORTED`, quebrando o refresh |
 | 7 | Correção: o `terraform plan` tentava alterar `shape_config` (1→2 OCPU / 1→12 GB) e trocar a imagem de boot da VM em execução | Risco de recriar a VM e **perder o volume do MongoDB** |
 | 8 | Correção: workflows do repo da aplicação buildavam `linux/arm64`, incompatível com a VM AMD | As imagens publicadas precisam ser `linux/amd64` |
+| 9 | Estado do Terraform migrado para o **OCI Object Storage** (backend nativo `oci`, com locking) | Permitir `terraform apply` no GitHub Actions, sem depender do estado local de uma máquina |
 
 O diagrama foi atualizado para representar o ambiente final (seção 4).
 
@@ -545,19 +546,18 @@ Ordem exata, para não quebrar o ambiente:
 
 2. MERGE do PR do repositório infrastructure
 
-3. TERRAFORM — uma única vez, remover os recursos legados de OCIR do estado
-   (sem isso o refresh falha com 403 FREE_TIER_NOT_SUPPORTED):
+3. TERRAFORM — estado remoto (uma única vez na sua máquina)
+   O estado agora vive no OCI Object Storage (bucket `equipe-sudo-tfstate`,
+   versionado). Este comando adota o estado remoto e ignora o arquivo local:
         cd terraform
-        terraform state rm \
-          'oci_artifacts_container_repository.repos["backend"]' \
-          'oci_artifacts_container_repository.repos["frontend"]'
+        mv terraform.tfstate terraform.tfstate.local.bak   # backup do antigo (opcional)
+        terraform init -reconfigure -backend-config="config_file_profile=KOLPZS"
+        terraform plan -var-file=terraform.tfvars   # deve ser "3 to add, 0 to change, 0 to destroy"
 
-4. TERRAFORM APPLY
-        # IMPORTANTE: o estado do Terraform é LOCAL (backend remoto está comentado).
-        # O apply deve ser executado na máquina que possui o terraform.tfstate.
-        terraform plan -var-file=terraform.tfvars   # confira: deve ser "3 to add, 0 to change, 0 to destroy"
-        terraform apply -var-file=terraform.tfvars
-        # anote os outputs: obs_vm_public_ip, obs_vm_private_ip, otel_exporter_otlp_endpoint
+4. TERRAFORM APPLY — roda no GitHub Actions
+        GitHub Actions → workflow "Terraform CI/CD" → Run workflow → mode = apply
+        # o job valida que o estado remoto não está vazio antes de aplicar
+        # ao final, anote os outputs: obs_vm_public_ip, obs_vm_private_ip, otel_exporter_otlp_endpoint
 
 5. ANSIBLE na VM de observabilidade (instala Docker + swap)
         ansible-playbook -i inventory.yml playbook-observability.yml
@@ -575,17 +575,18 @@ Ordem exata, para não quebrar o ambiente:
         abrir https://grafana-equipe-sudo.kolpzs.com e conferir os painéis
 ```
 
-> ⚠️ **Risco conhecido (importante):** o backend do Terraform está **comentado** (`main.tf`), ou seja,
-> o `terraform.tfstate` é **local**. O job `terraform-apply` do workflow `terraform-ci.yml` roda em um
-> runner do GitHub **sem esse estado** e, por isso, **não deve ser usado** — ele planejaria recriar
-> toda a infraestrutura. Enquanto o backend remoto (OCI Object Storage S3-compatível, já esboçado em
-> `main.tf`) não for habilitado, **o apply deve ser feito localmente**. Este PR não habilita o backend
-> remoto para não alterar o fluxo do grupo sem validação; recomenda-se habilitá-lo em seguida.
+> ℹ️ **Estado remoto (backend nativo do OCI):** o `terraform.tfstate` fica no bucket
+> `equipe-sudo-tfstate` do OCI Object Storage, com **locking**, usando o **backend nativo `oci`**
+> (Terraform ≥ 1.12) — não é o backend S3-compatível que a Oracle deprecou, e **não usa AWS nem
+> credencial S3**: autentica com a mesma API key OCI já usada pelo provider. Assim o `apply` pode
+> rodar no GitHub Actions e por qualquer integrante do time sem depender de uma máquina.
 >
-> 🛡️ **Trava adicionada:** o job `terraform-apply` agora **aborta** se o estado estiver vazio
-> (verificação `terraform state list`), evitando criar recursos por engano e gerar custo.
-> Pelo mesmo motivo, o `terraform plan` do CI exibe "N to add" (estado vazio no runner) — não é uma
-> regressão.
+> 🛡️ **Trava no CI:** antes de aplicar, o job `terraform-apply` verifica que o estado **não está
+> vazio** (`terraform state list`) e aborta caso contrário, evitando recriar a infraestrutura por um
+> backend mal configurado.
+>
+> 🗂️ **Recuperação do estado:** o bucket tem **versionamento** habilitado, então é possível voltar a
+> uma versão anterior do `tfstate` em caso de erro humano.
 
 ---
 
@@ -662,8 +663,9 @@ grupo, após o merge):
    reflete o que o back-end vê, não o interior do MongoDB.
 5. **Retenção limitada pela VM:** métricas 15 dias e logs 30 dias, em disco local da VM (sem
    replicação). Se a VM for perdida, os dados de observabilidade são perdidos.
-6. **Estado do Terraform é local** (item do runbook) — o apply via CI não deve ser usado enquanto o
-   backend remoto não for habilitado.
+6. **Estado do Terraform é remoto** (bucket `equipe-sudo-tfstate` no OCI Object Storage, backend
+   nativo `oci`, com locking e versionamento). O `terraform apply` roda no GitHub Actions sem
+   depender de máquina local.
 7. **Detalhes internos do Cloudflare** (balanceamento do túnel, anycast) são administrados pelo
    provedor e não são visíveis nem representados.
 
