@@ -2,10 +2,10 @@
 flowchart TB
   %% ============================================================
   %%  LEGENDA
-  %%  ────── linha cheia azul   : fluxo da aplicação (requisições)
-  %%  ────── linha tracejada roxa: fluxo de observabilidade (telemetria)
-  %%  - - -  linha pontilhada vermelha: acesso bloqueado
-  %%  ────── linha pontilhada cinza : resolução DNS
+  %%  linha cheia azul            : fluxo da aplicação (requisições)
+  %%  linha tracejada roxa        : fluxo de observabilidade (telemetria)
+  %%  linha pontilhada vermelha   : acesso bloqueado (e onde bloqueia)
+  %%  linha pontilhada cinza      : resolução DNS
   %% ============================================================
 
   subgraph INTERNET["🌐 Internet"]
@@ -13,23 +13,25 @@ flowchart TB
     OPS["👤 Equipe de operação<br/>navegador autenticado"]
   end
 
-  subgraph CF["☁️ Cloudflare (edge)"]
-    DNS["DNS<br/>equipe-sudo.kolpzs.com<br/>grafana-equipe-sudo.kolpzs.com"]
-    ACCESS["Cloudflare Access<br/>(autenticação - policy e-mail)"]
-    TUN1["Tunnel Edge<br/>túnel da aplicação"]
-    TUN2["Tunnel Edge<br/>túnel da observabilidade"]
+  subgraph CF["☁️ Cloudflare (edge) — serviços serverless"]
+    DNS["DNS<br/>equipe-sudo.kolpzs.com<br/>api-equipe-sudo.kolpzs.com<br/>grafana-equipe-sudo.kolpzs.com"]
+    ACCESS["Cloudflare Access<br/>autenticação por e-mail<br/>+ Service Token (origem da API)"]
+    PAGES["Cloudflare Pages<br/>SPA React na edge<br/>múltiplos PoPs = redundância"]
+    FUNC["Pages Function /api/*<br/>proxy para o origin<br/>envia o Service Token"]
+    TUN1["Tunnel edge<br/>túnel da aplicação"]
+    TUN2["Tunnel edge<br/>túnel da observabilidade"]
   end
 
   subgraph OCI["🔶 Oracle Cloud Infrastructure — região sa-saopaulo-1"]
     subgraph VCN["VCN vcn-equipe-sudo-dev — 10.0.0.0/16"]
-      IGW["Internet Gateway<br/>igw-equipe-sudo-dev<br/>route 0.0.0.0/0"]
+      IGW["Internet Gateway igw-equipe-sudo-dev<br/>route 0.0.0.0/0"]
 
       subgraph SUBAPP["Subnet pública da aplicação<br/>sn-equipe-sudo-public-dev — 10.0.1.0/24"]
-        subgraph VMAPP["VM vm-equipe-sudo-dev (VM.Standard.E2.1.Micro)<br/>IP privado 10.0.1.32"]
+        subgraph VMAPP["VM vm-equipe-sudo-dev (VM.Standard.E2.1.Micro) — 10.0.1.32"]
           subgraph NETAPP["Docker network todo-app-net (bridge)"]
-            CFD["container todo-tunnel<br/>cloudflared<br/>conexão QUIC de SAÍDA"]
-            FE["container todo-frontend<br/>nginx :80<br/>serve o React + proxy reverso /api"]
-            BE["container todo-backend<br/>Node.js + Express :5000"]
+            CFD["container todo-tunnel<br/>cloudflared (conexão QUIC de saída)"]
+            FE["container todo-frontend<br/>nginx :80<br/>proxy reverso /api/* (fallback do SPA)"]
+            BE["container todo-backend<br/>Node.js + Express :5000<br/>OpenTelemetry"]
             DB["container todo-mongo<br/>MongoDB :27017"]
             VOL["volume todo-mongo-data"]
           end
@@ -40,10 +42,10 @@ flowchart TB
         subgraph VMOBS["VM vm-equipe-sudo-obs-dev (VM.Standard.E2.1.Micro)"]
           subgraph NETOBS["Docker network obs-net (bridge)"]
             CFD2["container obs-tunnel<br/>cloudflared"]
-            COL["container obs-otel-collector<br/>OTel Collector :4317 :4318"]
-            PRO["container obs-prometheus<br/>Prometheus :9090 — 15 dias"]
-            LOK["container obs-loki<br/>Loki :3100 — 30 dias"]
-            GRA["container obs-grafana<br/>Grafana :3000"]
+            COL["container obs-otel-collector :4317 :4318"]
+            PRO["container obs-prometheus :9090 — 15 dias"]
+            LOK["container obs-loki :3100 — 30 dias"]
+            GRA["container obs-grafana :3000"]
           end
         end
       end
@@ -54,9 +56,15 @@ flowchart TB
   USER -. "resolve DNS" .-> DNS
   OPS -. "resolve DNS" .-> DNS
 
-  %% ---- Aplicação ----
-  USER ==>|"HTTPS 443<br/>TLS termina na edge Cloudflare"| ACCESS
-  ACCESS ==> TUN1
+  %% ---- Front-end na edge (serverless + redundância) ----
+  USER ==>|"HTTPS 443 / TLS termina na edge"| ACCESS
+  ACCESS ==>|"SPA (HTML/JS/CSS)"| PAGES
+  PAGES ==>|"carrega o app"| USER
+
+  %% ---- API: navegador -> edge -> origin na OCI ----
+  USER ==>|"fetch /api/*"| ACCESS
+  ACCESS ==>|"bypass só em /api/health*"| FUNC
+  FUNC ==>|"HTTPS + Service Token"| TUN1
   TUN1 ==>|"QUIC (saída da VM)"| CFD
   CFD ==>|"HTTP :80"| FE
   FE ==>|"proxy /api/ -> HTTP :5000"| BE
@@ -64,7 +72,7 @@ flowchart TB
   DB --- VOL
 
   %% ---- Observabilidade ----
-  OPS ==>|"HTTPS 443<br/>TLS termina na edge Cloudflare"| ACCESS
+  OPS ==>|"HTTPS 443"| ACCESS
   ACCESS ==> TUN2
   TUN2 ==>|"QUIC (saída da VM)"| CFD2
   CFD2 ==>|"HTTP :3000"| GRA
@@ -73,11 +81,12 @@ flowchart TB
   COL -.->|"remote_write das métricas"| PRO
   COL -.->|"OTLP/HTTP :3100/otlp dos logs"| LOK
   BE -.->|"OTLP/HTTP :4318 (métricas + logs)<br/>ACEITO: origem 10.0.1.0/24"| COL
+  COL -.->|"probe http_check a cada 30s<br/>/api/health e /api/health/ready"| PAGES
 
   %% ---- Bloqueios ----
-  USER -.-x|"❌ portas 80/5000/27017 fechadas no Security List"| VMAPP
-  USER -.-x|"❌ porta 3000/9090/3100 fechadas no Security List"| VMOBS
-  BE -.-x|"❌ frontend não acessa MongoDB"| DB
+  USER -.-x|"❌ portas 80/5000/27017 fechadas na Security List"| VMAPP
+  USER -.-x|"❌ portas 3000/9090/3100 fechadas na Security List"| VMOBS
+  USER -.-x|"❌ api-equipe-sudo sem Service Token -> 403"| TUN1
 
   %% ---- Estilos ----
   classDef internet fill:#eceff1,stroke:#546e7a,color:#000
@@ -86,10 +95,11 @@ flowchart TB
   classDef appc fill:#e3f2fd,stroke:#1565c0,color:#000
   classDef obsc fill:#f3e5f5,stroke:#6a1b9a,color:#000
   classDef dbc fill:#e8f5e9,stroke:#2e7d32,color:#000
-  classDef blockc fill:#ffebee,stroke:#c62828,color:#000
+  classDef edgec fill:#fff8e1,stroke:#f9a825,color:#000
 
   class USER,OPS internet
   class DNS,ACCESS,TUN1,TUN2 cf
+  class PAGES,FUNC edgec
   class VCN,SUBAPP,SUBOBS,VMAPP,VMOBS,IGW oci
   class CFD,FE,BE,NETAPP appc
   class VOL,DB dbc
