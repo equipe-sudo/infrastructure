@@ -35,13 +35,13 @@ receivers:
       - endpoint: ${env:PUBLIC_HEALTH_URL}
         method: GET
         validations:
-          - json_path: "$.status"
+          - json_path: "status"
             equals: "ok"
       # Readiness: nginx -> backend -> MongoDB
       - endpoint: ${env:PUBLIC_READY_URL}
         method: GET
         validations:
-          - json_path: "$.status"
+          - json_path: "status"
             equals: "ready"
 
 processors:

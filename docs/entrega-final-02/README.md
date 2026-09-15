@@ -252,71 +252,80 @@ consulta). Atualização automática: **30 s**.
 > "sem coleta". Nos painéis de taxa (4 e 7), séries ausentes significam apenas que não houve
 > requisições no período.
 
-### Painel 1 — Disponibilidade: validação de conteúdo pelo domínio
+### Painel 1 — Disponibilidade: sucesso das verificações pelo domínio
 
-- **Pergunta operacional:** a aplicação responde corretamente **pelo domínio configurado**?
-- **Motivo da escolha:** é o risco mais crítico e a pergunta mais direta do negócio. Um erro de
-  TLS, de túnel, de nginx ou de backend derruba o acesso do usuário mesmo com todos os containers
-  "no ar". Este painel é o semáforo do serviço.
+- **Pergunta operacional:** a aplicação está acessível **pelo domínio configurado**?
+- **Motivo da escolha:** é o risco mais crítico e a pergunta mais direta do negócio. Um erro de TLS,
+  de túnel, de nginx ou de backend derruba o acesso do usuário mesmo com todos os containers "no ar".
+  Este painel é o semáforo do serviço.
 - **Origem dos dados:** receiver `http_check` do **OTel Collector**. A cada 30 s ele faz
-  `GET https://equipe-sudo.kolpzs.com/api/health` (espera `{"status":"ok"}`) e
-  `GET .../api/health/ready` (espera `{"status":"ready"}`; o readiness consulta o MongoDB).
-  Gera `httpcheck_validation_passed` / `httpcheck_validation_failed` / `httpcheck_error`, enviados
-  por `remote_write` ao Prometheus.
+  `GET https://equipe-sudo.kolpzs.com/api/health` (liveness: nginx → backend) e
+  `GET .../api/health/ready` (readiness: nginx → backend → MongoDB). Para cada alvo publica
+  `httpcheck.status`: uma série por **classe de resposta** (1xx…5xx) valendo **1** quando a resposta
+  pertence à classe e **0** caso contrário. Também valida o **conteúdo** (JSON `status: ok` /
+  `ready`) e publica `httpcheck.validation.failed` quando o corpo não é o esperado. Tudo chega ao
+  Prometheus por `remote_write`.
 - **Consulta e cálculo:**
   ```promql
-  100 * (sum(increase(httpcheck_validation_passed[15m])) or vector(0))
-      / clamp_min(
-          (sum(increase(httpcheck_validation_passed[15m])) or vector(0))
-        + (sum(increase(httpcheck_validation_failed[15m])) or vector(0)), 0.000001)
+  100 * avg(avg_over_time(httpcheck_status{http_status_class="2xx"}[15m]))
   ```
-  **Numerador:** verificações que passaram na validação de conteúdo. **Denominador:** todas as
-  verificações (passou + falhou). Unidade: **%**. O `clamp_min` evita divisão por zero e o
-  `or vector(0)` garante que o painel mostre **0 %** em vez de "sem dados" quando nada passou.
-- **Recorte temporal:** últimos 15 min; agregação `increase[15m]`; atualização a cada 30 s; UTC→local.
+  Para cada alvo, `avg_over_time` calcula a **fração de verificações da janela que responderam na
+  classe 2xx**; o `avg` externo agrega os dois alvos. **Numerador:** amostras com
+  `httpcheck_status{http_status_class="2xx"} == 1`. **Denominador:** todas as amostras do período.
+  Unidade: **%**.
+- **Recorte temporal:** janela de **15 min**; probe a cada 30 s; atualização a cada 30 s; UTC →
+  convertido para o fuso do navegador.
 - **Forma de visualização:** `stat` com cor de fundo — leitura imediata por quem está de plantão.
-- **Interpretação:** **100 %** = a aplicação respondeu o conteúdo esperado em todas as
-  verificações. **0 %** = o domínio respondeu algo que não é a aplicação (página de erro, login do
-  Access) ou não respondeu. Valores intermediários = indisponibilidade intermitente.
-- **Critérios de atenção:** `< 99 %` (amarelo) merece investigação; `< 95 %` (vermelho) é
-  incidente. O critério parte do princípio de que o serviço deve ficar disponível; o limite de 99 %
-  tolera uma falha isolada em ~150 verificações por hora.
-- **Ação decorrente:** abrir o painel 2 para localizar a janela de falha, verificar o painel 8
-  (logs de erro) e o estado dos containers (`docker compose ps`). Se a falha for de conexão,
-  checar o túnel Cloudflare; se for de conteúdo, checar o back-end/MongoDB.
-- **Validação e limitações:** validado localmente subindo a stack e confirmando que o probe
-  **falha** corretamente quando o conteúdo não é a aplicação (no ambiente real, o domínio está
-  atrás do **Cloudflare Access** e o probe recebe a página de login → `validation_failed`, o que é o
-  comportamento esperado). **Ação necessária:** criar uma exceção (*bypass*) no Cloudflare Access
-  para `/api/health` e `/api/health/ready` (seção 9) para que o check seja ponta a ponta e o painel
-  marque 100 %. **Limitação:** o check prova que **a rota de health** responde pelo domínio; ele não
-  exercita as rotas de negócio (isso é coberto pelos painéis 3–6).
+- **Interpretação:** **100 %** = todas as verificações da janela responderam 2xx. Valores menores
+  indicam janelas de indisponibilidade; depois de uma recuperação, o indicador leva ~15 min para
+  voltar a 100 % (as amostras antigas continuam na janela) — isso é esperado e evita "mascarar" a
+  falha recente.
+- **Critérios de atenção:** `< 99 %` (amarelo) merece investigação; `< 95 %` (vermelho) é incidente.
+  O limite de 99 % tolera uma falha isolada em ~30 verificações.
+- **Ação decorrente:** abrir o painel 2 para localizar a janela de falha, conferir o painel 8 (logs)
+  e o estado dos containers (`docker compose ps`). Se a falha for de conexão, checar o túnel
+  Cloudflare; se for de conteúdo, checar o back-end/MongoDB.
+- **Validação e limitações:** validado **no ambiente real**: com a exceção (bypass) do Cloudflare
+  Access aplicada, os dois alvos respondem **2xx** e a janela de 2 min mostra **100 %**. Logo após o
+  deploy, a janela de 15 min mostrou **50 %** porque ainda continha amostras de quando
+  `/api/health/ready` não existia (HTTP 404 no app antigo) — comportamento esperado.
+  **Semântica importante do dado:** o receiver publica a métrica **por verificação** (não é um
+  contador acumulativo) e **não emite zeros ausentes**; por isso **não se usa `increase()`/`rate()`
+  nessas séries**. O `httpcheck.status` é um *gauge* 1/0 por classe, sempre presente, o que o torna
+  robusto para calcular disponibilidade. A validação de conteúdo é usada como **sinal complementar**
+  (painel 2). **Limitação:** o probe comprova a **rota de health** pelo domínio; não exercita as
+  rotas de negócio (cobertas pelos painéis 3–6).
 
 ### Painel 2 — Disponibilidade: linha do tempo das verificações
 
-- **Pergunta operacional:** **quando** a aplicação ficou indisponível e por quanto tempo?
-- **Motivo da escolha:** o painel 1 diz *quanto*, mas não *quando*. Para responder ao usuário ou
-  abrir um incidente é preciso a janela exata.
-- **Origem dos dados:** mesma origem do painel 1 (`http_check`), agora em contadores separados.
+- **Pergunta operacional:** **quando** a aplicação ficou indisponível e qual foi a natureza da falha?
+- **Motivo da escolha:** o painel 1 diz *quanto*, mas não *quando* nem *por quê*. Localizar a janela
+  exata e distinguir "falha de servidor" de "resposta inesperada" acelera o diagnóstico.
+- **Origem dos dados:** `httpcheck.status` (classes 2xx e 5xx) e `httpcheck.validation.failed`
+  (respondeu 2xx, mas o conteúdo não era o da aplicação — ex.: página de login do Cloudflare Access),
+  todos do mesmo receiver `http_check`.
 - **Consulta e cálculo:**
   ```promql
-  increase(httpcheck_validation_passed[5m])   # sucesso   {{http_url}}
-  increase(httpcheck_validation_failed[5m])   # falha     {{http_url}}
-  increase(httpcheck_error[5m])               # erro de conexão
+  httpcheck_status{http_status_class="2xx"}   # sucesso
+  httpcheck_status{http_status_class="5xx"}   # falha de servidor
+  httpcheck_validation_failed                 # resposta OK, conteúdo inesperado
   ```
-  Contagem de ocorrências por intervalo de 5 min (não é taxa — é quantidade).
-- **Recorte temporal:** janela padrão de 6 h; barras de 5 min; atualização 30 s.
-- **Forma de visualização:** `timeseries` em **barras empilhadas** verdes (sucesso) / vermelhas
-  (falha) / laranja (erro). A cor e o empilhamento mostram volume e proporção ao mesmo tempo.
-- **Interpretação:** barras verdes contínuas = operação normal. Vermelho/laranja aparecendo =
-  janela de indisponibilidade exatamente naquele horário.
-- **Critérios de atenção:** **qualquer** barra de falha ou de erro merece investigação; o volume
-  define a urgência.
-- **Ação decorrente:** cruzar o horário da barra vermelha com logs (painel 8) e com o histórico de
-  deploys (workflows do GitHub Actions).
-- **Validação e limitações:** validado localmente (as séries de falha aparecem no horário exato do
-  teste). **Limitação:** o `http_check` reporta apenas o resultado da última verificação por
-  intervalo; rajadas mais curtas que 30 s podem não aparecer.
+  Valores **1/0 por verificação**, sem agregação (o `legendFormat` separa os alvos `{{http_url}}`).
+- **Recorte temporal:** janela padrão de 6 h; atualização 30 s; timestamps em UTC.
+- **Forma de visualização:** `timeseries` em **barras empilhadas** — verde (sucesso), vermelho
+  (5xx) e laranja (falha de conteúdo). O empilhamento mostra presença e proporção ao mesmo tempo.
+- **Interpretação:** barras verdes contínuas = operação normal. Cada verificação gera um ponto a cada
+  30 s, então **a presença da série comprova que a coleta está viva**. A linha de falha de conteúdo só
+  aparece quando o corpo é inesperado — a **ausência dela significa "nenhuma falha de conteúdo"**, e
+  não "sem coleta" (a série 2xx continua marcando cada verificação).
+- **Critérios de atenção:** **qualquer** barra vermelha (5xx) ou linha laranja merece investigação.
+- **Ação decorrente:** cruzar o horário da barra com os logs (painel 8) e com o histórico de deploys
+  do GitHub Actions. Falha de conteúdo com 2xx geralmente indica intervenção de borda (Access/túnel),
+  não do back-end.
+- **Validação e limitações:** validado no ambiente real — após o bypass do Access, as barras ficaram
+  verdes e a linha de falha de conteúdo desapareceu (as amostras antigas de falha expiraram da janela).
+  **Limitação:** o probe reporta o resultado por verificação de 30 s; rajadas mais curtas que isso
+  podem não aparecer.
 
 ### Painel 3 — Desempenho: latência por rota (p50 / p95)
 
