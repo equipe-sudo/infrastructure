@@ -11,3 +11,8 @@ terraform/terraform.tfvars
 # Binários e documentos Office
 *.docx
 *.pdf
+
+# Variáveis de ambiente locais (nunca versionar secrets)
+.env
+**/.env
+

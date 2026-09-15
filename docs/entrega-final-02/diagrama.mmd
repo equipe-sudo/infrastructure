@@ -1,0 +1,96 @@
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "15px", "fontFamily": "Helvetica"}}}%%
+flowchart TB
+  %% ============================================================
+  %%  LEGENDA
+  %%  ────── linha cheia azul   : fluxo da aplicação (requisições)
+  %%  ────── linha tracejada roxa: fluxo de observabilidade (telemetria)
+  %%  - - -  linha pontilhada vermelha: acesso bloqueado
+  %%  ────── linha pontilhada cinza : resolução DNS
+  %% ============================================================
+
+  subgraph INTERNET["🌐 Internet"]
+    USER["👤 Usuário<br/>navegador"]
+    OPS["👤 Equipe de operação<br/>navegador autenticado"]
+  end
+
+  subgraph CF["☁️ Cloudflare (edge)"]
+    DNS["DNS<br/>equipe-sudo.kolpzs.com<br/>grafana-equipe-sudo.kolpzs.com"]
+    ACCESS["Cloudflare Access<br/>(autenticação - policy e-mail)"]
+    TUN1["Tunnel Edge<br/>túnel da aplicação"]
+    TUN2["Tunnel Edge<br/>túnel da observabilidade"]
+  end
+
+  subgraph OCI["🔶 Oracle Cloud Infrastructure — região sa-saopaulo-1"]
+    subgraph VCN["VCN vcn-equipe-sudo-dev — 10.0.0.0/16"]
+      IGW["Internet Gateway<br/>igw-equipe-sudo-dev<br/>route 0.0.0.0/0"]
+
+      subgraph SUBAPP["Subnet pública da aplicação<br/>sn-equipe-sudo-public-dev — 10.0.1.0/24"]
+        subgraph VMAPP["VM vm-equipe-sudo-dev (VM.Standard.E2.1.Micro)<br/>IP privado 10.0.1.32"]
+          subgraph NETAPP["Docker network todo-app-net (bridge)"]
+            CFD["container todo-tunnel<br/>cloudflared<br/>conexão QUIC de SAÍDA"]
+            FE["container todo-frontend<br/>nginx :80<br/>serve o React + proxy reverso /api"]
+            BE["container todo-backend<br/>Node.js + Express :5000"]
+            DB["container todo-mongo<br/>MongoDB :27017"]
+            VOL["volume todo-mongo-data"]
+          end
+        end
+      end
+
+      subgraph SUBOBS["Subnet da observabilidade<br/>sn-equipe-sudo-obs-dev — 10.0.2.0/24<br/>Security List sl-equipe-sudo-obs-dev"]
+        subgraph VMOBS["VM vm-equipe-sudo-obs-dev (VM.Standard.E2.1.Micro)"]
+          subgraph NETOBS["Docker network obs-net (bridge)"]
+            CFD2["container obs-tunnel<br/>cloudflared"]
+            COL["container obs-otel-collector<br/>OTel Collector :4317 :4318"]
+            PRO["container obs-prometheus<br/>Prometheus :9090 — 15 dias"]
+            LOK["container obs-loki<br/>Loki :3100 — 30 dias"]
+            GRA["container obs-grafana<br/>Grafana :3000"]
+          end
+        end
+      end
+    end
+  end
+
+  %% ---- DNS ----
+  USER -. "resolve DNS" .-> DNS
+  OPS -. "resolve DNS" .-> DNS
+
+  %% ---- Aplicação ----
+  USER ==>|"HTTPS 443<br/>TLS termina na edge Cloudflare"| ACCESS
+  ACCESS ==> TUN1
+  TUN1 ==>|"QUIC (saída da VM)"| CFD
+  CFD ==>|"HTTP :80"| FE
+  FE ==>|"proxy /api/ -> HTTP :5000"| BE
+  BE ==>|"MongoDB :27017"| DB
+  DB --- VOL
+
+  %% ---- Observabilidade ----
+  OPS ==>|"HTTPS 443<br/>TLS termina na edge Cloudflare"| ACCESS
+  ACCESS ==> TUN2
+  TUN2 ==>|"QUIC (saída da VM)"| CFD2
+  CFD2 ==>|"HTTP :3000"| GRA
+  GRA -.->|"consulta PromQL"| PRO
+  GRA -.->|"consulta LogQL"| LOK
+  COL -.->|"remote_write das métricas"| PRO
+  COL -.->|"OTLP/HTTP :3100/otlp dos logs"| LOK
+  BE -.->|"OTLP/HTTP :4318 (métricas + logs)<br/>ACEITO: origem 10.0.1.0/24"| COL
+
+  %% ---- Bloqueios ----
+  USER -.-x|"❌ portas 80/5000/27017 fechadas no Security List"| VMAPP
+  USER -.-x|"❌ porta 3000/9090/3100 fechadas no Security List"| VMOBS
+  BE -.-x|"❌ frontend não acessa MongoDB"| DB
+
+  %% ---- Estilos ----
+  classDef internet fill:#eceff1,stroke:#546e7a,color:#000
+  classDef cf fill:#fff3e0,stroke:#ef6c00,color:#000
+  classDef oci fill:#fbe9e7,stroke:#d84315,color:#000
+  classDef appc fill:#e3f2fd,stroke:#1565c0,color:#000
+  classDef obsc fill:#f3e5f5,stroke:#6a1b9a,color:#000
+  classDef dbc fill:#e8f5e9,stroke:#2e7d32,color:#000
+  classDef blockc fill:#ffebee,stroke:#c62828,color:#000
+
+  class USER,OPS internet
+  class DNS,ACCESS,TUN1,TUN2 cf
+  class VCN,SUBAPP,SUBOBS,VMAPP,VMOBS,IGW oci
+  class CFD,FE,BE,NETAPP appc
+  class VOL,DB dbc
+  class CFD2,COL,PRO,LOK,GRA,NETOBS obsc
