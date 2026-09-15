@@ -581,6 +581,11 @@ Ordem exata, para não quebrar o ambiente:
 > toda a infraestrutura. Enquanto o backend remoto (OCI Object Storage S3-compatível, já esboçado em
 > `main.tf`) não for habilitado, **o apply deve ser feito localmente**. Este PR não habilita o backend
 > remoto para não alterar o fluxo do grupo sem validação; recomenda-se habilitá-lo em seguida.
+>
+> 🛡️ **Trava adicionada:** o job `terraform-apply` agora **aborta** se o estado estiver vazio
+> (verificação `terraform state list`), evitando criar recursos por engano e gerar custo.
+> Pelo mesmo motivo, o `terraform plan` do CI exibe "N to add" (estado vazio no runner) — não é uma
+> regressão.
 
 ---
 
