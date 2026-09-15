@@ -1,24 +1,13 @@
 # ============================================
 # Ansible — Inventário
 # ============================================
-# Preencha os IPs públicos com os outputs do Terraform:
-#   terraform -chdir=terraform output vm_public_ip
-#   terraform -chdir=terraform output obs_vm_public_ip
+# Substitua <VM_PUBLIC_IP> pelo IP real da VM
+#   terraform -chdir=../terraform output vm_public_ip
 
 all:
-  children:
-    app:
-      hosts:
-        vm:
-          ansible_host: 129.148.50.233
-          ansible_user: opc
-          ansible_ssh_private_key_file: ~/.ssh/id_rsa
-          ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
-
-    observability:
-      hosts:
-        obs:
-          ansible_host: 129.148.50.233 # TODO: substituir por obs_vm_public_ip
-          ansible_user: opc
-          ansible_ssh_private_key_file: ~/.ssh/id_rsa
-          ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+  hosts:
+    vm:
+      ansible_host: 129.148.50.233
+      ansible_user: opc
+      ansible_ssh_private_key_file: ~/.ssh/id_rsa
+      ansible_ssh_common_args: '-o StrictHostKeyChecking=no'

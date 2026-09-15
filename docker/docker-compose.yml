@@ -60,19 +60,6 @@ services:
       MONGO_URI: mongodb://${MONGO_INITDB_ROOT_USERNAME:-root}:${MONGO_INITDB_ROOT_PASSWORD:-rootpassword}@mongo:27017/${MONGO_INITDB_DATABASE:-todo-app}?authSource=admin
       HOST: 0.0.0.0
       PORT: 5000
-      # --- Observabilidade (OpenTelemetry) ---
-      # Sem OTEL_EXPORTER_OTLP_ENDPOINT o SDK não inicializa e o app sobe normal.
-      OTEL_SERVICE_NAME: equipe-sudo-backend
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_TRACES_EXPORTER: none
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_LOGS_EXPORTER: otlp
-      # Evita labels voláteis (host/pid) que mudam a cada restart e criam
-      # séries órfãs no Prometheus. O resource é definido em instrumentation.js.
-      OTEL_NODE_RESOURCE_DETECTORS: none
-      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-dev}
-      APP_VERSION: ${APP_VERSION:-unknown}
     depends_on:
       mongo:
         condition: service_healthy
