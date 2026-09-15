@@ -12,7 +12,19 @@ name: Deploy Observability Stack
 #   PUBLIC_READY_URL        URL pública do readiness da aplicação
 
 on:
+  # Deploy automático quando a stack de observabilidade muda na main
+  push:
+    branches: [main]
+    paths:
+      - "observability/**"
+      - ".github/workflows/deploy-observability.yml"
+  # Deploy manual
   workflow_dispatch:
+
+# Evita dois deploys simultâneos na VM de observabilidade
+concurrency:
+  group: deploy-observability
+  cancel-in-progress: false
 
 permissions:
   contents: read
