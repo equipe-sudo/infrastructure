@@ -599,6 +599,49 @@ Ordem exata, para não quebrar o ambiente:
 
 ---
 
+## 10.1 Automação do deploy (CI/CD)
+
+Os deploys de **aplicação** e **observabilidade** agora são acionados automaticamente:
+
+| Evento | O que dispara | Workflow |
+|---|---|---|
+| Push na `main` que altera `docker/**` | Deploy da aplicação | `deploy-vm.yml` |
+| Push na `main` que altera `observability/**` | Deploy da stack | `deploy-observability.yml` |
+| Imagem nova publicada pelo repo da aplicação | Deploy da aplicação | `repository_dispatch: app-image-updated` |
+| Manual | Qualquer um | `workflow_dispatch` (continua disponível) |
+
+O caminho completo fica:
+
+```
+push na main do repo da aplicação
+   └─► "Build & Push Backend/Frontend" (linux/amd64) ──► GHCR
+          └─► repository_dispatch: app-image-updated
+                 └─► "Deploy to VM" (pull + up -d)
+```
+
+Para isso, o repositório da **aplicação** precisa do secret **`CI_PAT`** (um token com escopo
+`repo` sobre o repositório `infrastructure`), usado apenas para chamar a API de dispatch:
+
+```bash
+gh secret set CI_PAT --repo equipe-sudo/aula-uniamerica-infraestrutura-cloud --body "<token>"
+```
+
+Sem esse secret o passo é pulado e o build continua verde — o deploy volta a ser manual.
+
+**Proteções aplicadas**
+
+- `concurrency` nos dois workflows: impede dois deploys simultâneos na mesma VM.
+- Filtro de `paths`: um push que só mexe em documentação não dispara deploy.
+- O `terraform apply` **permanece manual** (cria/remove recursos e consome estado). Automatizá-lo
+  num merge é arriscado e poderia gerar custo — por isso fica em `workflow_dispatch`, com o `plan`
+  revisável no PR.
+
+> **Custo:** o repositório `infrastructure` é **privado**, então os minutos de Actions contam contra
+> os **2.000 min/mês gratuitos** do plano Free. Cada deploy leva ~1 min, então a automação fica
+> folgadamente dentro do gratuito.
+
+---
+
 ## 11. Testes e evidências
 
 Os cenários abaixo devem ser executados **no ambiente real** e as capturas salvas em

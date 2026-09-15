@@ -1,7 +1,22 @@
 name: Deploy to VM
 
 on:
+  # Deploy automático quando a definição de deploy da aplicação muda na main
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".github/workflows/deploy-vm.yml"
+  # Deploy automático após o build publicar uma imagem nova (ver repo da aplicação)
+  repository_dispatch:
+    types: [app-image-updated]
+  # Deploy manual (continua disponível)
   workflow_dispatch:
+
+# Evita dois deploys simultâneos na mesma VM
+concurrency:
+  group: deploy-vm
+  cancel-in-progress: false
 
 jobs:
   deploy:
