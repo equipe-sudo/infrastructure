@@ -12,10 +12,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Gerar .env para Cloudflare Tunnel
+      - name: Gerar .env (tunnel + observabilidade)
         run: |
           cat > docker/.env << 'EOF'
           CLOUDFLARE_TUNNEL_TOKEN=${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          OTEL_EXPORTER_OTLP_ENDPOINT=${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          DEPLOYMENT_ENVIRONMENT=dev
+          APP_VERSION=${{ github.sha }}
           EOF
 
       - name: Copy files to VM

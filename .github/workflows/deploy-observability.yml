@@ -1,0 +1,72 @@
+name: Deploy Observability Stack
+
+# Deploy da stack de observabilidade (Grafana + Prometheus + Loki + OTel
+# Collector + túnel dedicado) na VM de observabilidade.
+#
+# Pré-requisitos (secrets no repositório infrastructure):
+#   OBS_VM_PUBLIC_IP        IP público da VM de observabilidade (terraform output obs_vm_public_ip)
+#   SSH_PRIVATE_KEY         chave privada para opc@<OBS_VM_PUBLIC_IP>
+#   GRAFANA_ADMIN_PASSWORD  senha do usuário admin do Grafana
+#   GRAFANA_TUNNEL_TOKEN    token do túnel Cloudflare dedicado ao Grafana
+#   PUBLIC_HEALTH_URL       URL pública do health da aplicação
+#   PUBLIC_READY_URL        URL pública do readiness da aplicação
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Observability
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gerar .env da observabilidade
+        run: |
+          cat > observability/.env << 'EOF'
+          GRAFANA_HOST=grafana-equipe-sudo.kolpzs.com
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          GRAFANA_TUNNEL_TOKEN=${{ secrets.GRAFANA_TUNNEL_TOKEN }}
+          PUBLIC_HEALTH_URL=${{ secrets.PUBLIC_HEALTH_URL }}
+          PUBLIC_READY_URL=${{ secrets.PUBLIC_READY_URL }}
+          DEPLOYMENT_ENVIRONMENT=dev
+          EOF
+
+      - name: Copy files to observability VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OBS_VM_PUBLIC_IP }}
+          username: opc
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: observability/*
+          target: /home/opc/observability/
+          strip_components: 1
+          overwrite: true
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.OBS_VM_PUBLIC_IP }}
+          username: opc
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -euo pipefail
+            cd /home/opc/observability
+
+            # Imagens são públicas (otel, prometheus, loki, grafana, cloudflared)
+            docker compose --env-file .env pull
+
+            docker compose --env-file .env up -d --remove-orphans
+
+            docker image prune -f
+
+            echo ""
+            echo "=== Containers ==="
+            docker compose --env-file .env ps
+            echo ""
+            echo "✓ Observabilidade no ar — $(date)"
