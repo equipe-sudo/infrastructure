@@ -1,0 +1,71 @@
+name: Deploy Frontend (Cloudflare Pages)
+
+# Publica o SPA React no Cloudflare Pages (edge, serverless e distribuído).
+# O domínio equipe-sudo.kolpzs.com é servido pela edge; a API continua na OCI
+# e é alcançada pela Pages Function em /api/* (ver functions/api/[[path]].js).
+#
+# Pré-requisitos (secrets no repositório infrastructure):
+#   CLOUDFLARE_API_TOKEN   token com Account > Cloudflare Pages: Edit
+#   CLOUDFLARE_ACCOUNT_ID  id da conta Cloudflare
+#   CI_PAT                 token para clonar o repositório da aplicação (privado/publico)
+
+on:
+  # Publica quando o repositório da aplicação avisa que a main mudou
+  repository_dispatch:
+    types: [app-image-updated]
+  # Permite testar o workflow em si
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy to Pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout da aplicação
+        uses: actions/checkout@v4
+        with:
+          repository: equipe-sudo/aula-uniamerica-infraestrutura-cloud
+          ref: main
+          token: ${{ secrets.CI_PAT }}
+          path: app
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Build do frontend
+        working-directory: app/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy para o Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # workingDirectory = raiz do repo da aplicação, onde vive functions/
+          workingDirectory: app
+          command: pages deploy frontend/build --project-name=equipe-sudo-frontend --branch=main
+
+      - name: Resumo
+        run: |
+          echo "### Frontend publicado na edge" >> $GITHUB_STEP_SUMMARY
+          echo "- Projeto: equipe-sudo-frontend" >> $GITHUB_STEP_SUMMARY
+          echo "- Domínio: https://equipe-sudo.kolpzs.com" >> $GITHUB_STEP_SUMMARY
+          echo "- Origem da API: https://api-equipe-sudo.kolpzs.com (protegida por Access/service token)" >> $GITHUB_STEP_SUMMARY
