@@ -1,11 +1,9 @@
 # Terraform — não versionar estado local nem binários
 terraform/.terraform/
-terraform/terraform.tfstate
-terraform/terraform.tfstate.backup
-terraform/tfplan
-terraform/tfplan2
-terraform/tfplan3
-terraform/tfplan4
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfstate.local.bak
+terraform/tfplan*
 terraform/terraform.tfvars
 
 # Binários e documentos Office
