@@ -75,6 +75,10 @@ jobs:
 
             docker compose --env-file .env up -d --remove-orphans
 
+            # O prometheus.yml é um bind mount: o 'up -d' NÃO recria o container
+            # quando só o arquivo muda, então recarregamos a config via SIGHUP.
+            docker kill -s HUP obs-prometheus || true
+
             docker image prune -f
 
             echo ""
