@@ -46,15 +46,24 @@ variable "subnet_cidr" {
   default     = "10.0.1.0/24"
 }
 
+variable "obs_subnet_cidr" {
+  description = "CIDR da subnet de observabilidade (isolada da subnet da aplicacao)"
+  type        = string
+  default     = "10.0.2.0/24"
+}
+
 # --- Compute ---
 variable "vm_shape" {
-  description = "Shape da VM"
+  description = "Shape da VM da aplicação. Sempre Free: VM.Standard.E2.1.Micro (AMD, 1 GB) ou VM.Standard.A1.Flex (ARM, até 4 OCPU/24 GB no total)."
   type        = string
-  default     = "VM.Standard.A1.Flex"
+  default     = "VM.Standard.E2.1.Micro"
 
   validation {
-    condition     = var.vm_shape == "VM.Standard.A1.Flex"
-    error_message = "Use VM.Standard.A1.Flex para obter o maior limite Always Free: ate 4 OCPUs e 24 GB RAM."
+    condition = contains(
+      ["VM.Standard.E2.1.Micro", "VM.Standard.A1.Flex"],
+      var.vm_shape
+    )
+    error_message = "Use VM.Standard.E2.1.Micro (Always Free AMD) ou VM.Standard.A1.Flex (Always Free ARM)."
   }
 }
 
@@ -84,6 +93,33 @@ variable "ssh_public_key_path" {
   description = "Caminho da chave pública SSH"
   type        = string
   default     = "~/.ssh/id_rsa.pub"
+}
+
+# --- Compute: observabilidade ---
+variable "obs_vm_shape" {
+  description = "Shape da VM de observabilidade (Grafana/Prometheus/Loki/OTel Collector)."
+  type        = string
+  default     = "VM.Standard.E2.1.Micro"
+
+  validation {
+    condition = contains(
+      ["VM.Standard.E2.1.Micro", "VM.Standard.A1.Flex"],
+      var.obs_vm_shape
+    )
+    error_message = "Use VM.Standard.E2.1.Micro (Always Free AMD) ou VM.Standard.A1.Flex (Always Free ARM)."
+  }
+}
+
+variable "obs_vm_ocpus" {
+  description = "OCPUs da VM de observabilidade (usado apenas em shapes Flex)."
+  type        = number
+  default     = 1
+}
+
+variable "obs_vm_memory_gb" {
+  description = "Memória RAM (GB) da VM de observabilidade (usado apenas em shapes Flex)."
+  type        = number
+  default     = 1
 }
 
 # --- Tags ---

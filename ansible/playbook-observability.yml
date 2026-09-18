@@ -1,0 +1,82 @@
+# ============================================
+# Ansible — Setup da VM de observabilidade
+# ============================================
+# Instala Docker + Docker Compose e prepara o swap em uma VM de 1 GB RAM,
+# onde roda Grafana + Prometheus + Loki + OTel Collector.
+#
+# Uso:
+#   ansible-playbook -i inventory.yml playbook-observability.yml
+
+---
+- name: Configurar VM de observabilidade
+  hosts: obs
+  become: yes
+  vars:
+    dnf_opts: "--setopt=tsflags=nodocs --setopt=install_weak_deps=False"
+    obs_dir: /home/opc/observability
+
+  tasks:
+    - name: Criar swap de 2 GB
+      shell: |
+        if ! swapon --show | grep -q /swapfile; then
+          dd if=/dev/zero of=/swapfile bs=1M count=2048
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+        fi
+      args:
+        creates: /swapfile
+
+    - name: Instalar dependências do sistema
+      shell: rpm -q git curl python3 || dnf install -y {{ dnf_opts }} git curl python3
+      register: _deps
+      changed_when: "'instal' in _deps.stdout"
+
+    - name: Adicionar repositório Docker
+      shell: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Instalar Docker Engine
+      shell: |
+        rpm -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+          || dnf install -y {{ dnf_opts }} docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      register: _docker
+      changed_when: "'instal' in _docker.stdout"
+
+    - name: Iniciar e habilitar Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Adicionar usuário opc ao grupo docker
+      user:
+        name: opc
+        groups: docker
+        append: yes
+
+    - name: Ajustar parâmetros de kernel para o Grafana/Prometheus
+      sysctl:
+        name: vm.max_map_count
+        value: "262144"
+        state: present
+        reload: yes
+
+    - name: Criar diretório da stack de observabilidade
+      file:
+        path: "{{ obs_dir }}"
+        state: directory
+        owner: opc
+        group: opc
+        mode: "0755"
+
+    - name: Verificar Docker
+      command: docker --version
+      register: docker_ver
+      changed_when: false
+
+    - name: Exibir versão
+      debug:
+        msg: "Docker: {{ docker_ver.stdout }}"
