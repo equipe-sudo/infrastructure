@@ -1,35 +1,30 @@
 # ============================================
 # Container images — GitHub Container Registry (GHCR)
 # ============================================
-# As imagens são publicadas pelos workflows do GitHub Actions.
-# O Terraform não tenta criar repositórios de container na OCI.
+# As imagens são publicadas pelos workflows do GitHub Actions em
+# ghcr.io/equipe-sudo/. O Terraform não gerencia mais repositórios de
+# container na OCI (OCIR).
+#
+# NOTA DE MIGRAÇÃO
+# ----------------
+# Os recursos `oci_artifacts_container_repository.repos["backend"|"frontend"]`
+# (OCIR) foram removidos deste arquivo: a tenancy é Free Tier e o serviço
+# Artifacts Container Registry não é suportado (erro 403 FREE_TIER_NOT_SUPPORTED),
+# o que fazia o `terraform plan` falhar no refresh. Eles também não são mais
+# necessários, pois as imagens passaram para o GHCR.
+#
+# Ajuste único necessário no estado (executar uma vez):
+#
+#   terraform state rm \
+#     'oci_artifacts_container_repository.repos["backend"]' \
+#     'oci_artifacts_container_repository.repos["frontend"]'
+#
+# Sem esse passo, o Terraform tentaria ler/remover recursos que a API recusa.
 
 locals {
   ghcr_registry = "ghcr.io/equipe-sudo"
-
-  legacy_container_repos = {
-    backend  = "equipe-sudo-backend"
-    frontend = "equipe-sudo-frontend"
-  }
 }
 
-# Mantidos no estado para evitar recriação ou destruição acidental. As imagens
-# da aplicação são publicadas no GHCR pelos workflows de CI/CD.
-resource "oci_artifacts_container_repository" "repos" {
-  for_each       = local.legacy_container_repos
-  compartment_id = var.oci_tenancy_ocid
-  display_name   = "${var.tag_project}/${each.value}"
-  is_immutable   = false
-  is_public      = false
-
-  lifecycle {
-    prevent_destroy = true
-  }
-
-  freeform_tags = local.common_tags
-}
-
-# Outputs para uso em CI/CD e deploy
 output "container_registry_url" {
   description = "URL base do GitHub Container Registry"
   value       = local.ghcr_registry
