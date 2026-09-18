@@ -98,6 +98,24 @@ services:
     networks: [obs-net]
 
   # ==========================================
+  # node_exporter — métricas de host da VM de observabilidade
+  # ==========================================
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: obs-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|var/lib/docker/.+)($$|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "127.0.0.1:9100:9100"
+    mem_limit: 64m
+    networks: [obs-net]
+
+  # ==========================================
   # Cloudflare Tunnel — acesso remoto ao Grafana
   # ==========================================
   # Túnel dedicado à observabilidade (token próprio), separado do túnel da

@@ -101,6 +101,22 @@ resource "oci_core_default_security_list" "main" {
     description = "ICMP ping"
   }
 
+  # node_exporter (métricas de host) — aceito SOMENTE da subnet da observabilidade.
+  # O Prometheus roda na VM de observabilidade e faz o scrape (modelo pull) das
+  # duas VMs na porta 9100. É uma leitura de métricas, não um caminho de dados.
+  ingress_security_rules {
+    protocol    = "6"
+    source      = var.obs_subnet_cidr
+    source_type = "CIDR_BLOCK"
+
+    tcp_options {
+      min = 9100
+      max = 9100
+    }
+
+    description = "node_exporter (scrape do Prometheus)"
+  }
+
   # Egress — todo tráfego de saída (necessário para Cloudflare Tunnel,
   # Docker pulls do OCIR, e atualizações do sistema)
   egress_security_rules {

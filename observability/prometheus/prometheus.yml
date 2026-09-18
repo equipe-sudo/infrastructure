@@ -2,14 +2,32 @@
 # Prometheus — armazenamento de métricas
 # ============================================
 # Recebe métricas por remote_write do OpenTelemetry Collector
-# (--web.enable-remote-write-receiver). O scrape local serve apenas para
-# as métricas do próprio Prometheus.
+# (--web.enable-remote-write-receiver) e faz o scrape direto do node_exporter
+# das duas VMs (CPU, memória, disco, rede, I/O) e de si mesmo.
 
 global:
-  scrape_interval: 60s
-  evaluation_interval: 60s
+  scrape_interval: 30s
+  evaluation_interval: 30s
 
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  # node_exporter da VM da aplicação (10.0.1.32).
+  # A Security List da subnet da aplicação aceita a porta 9100 apenas da
+  # subnet da observabilidade (10.0.2.0/24).
+  - job_name: node-app
+    static_configs:
+      - targets: ["10.0.1.32:9100"]
+        labels:
+          instance: vm-equipe-sudo-dev
+          role: aplicacao
+
+  # node_exporter da própria VM de observabilidade
+  - job_name: node-observability
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          instance: vm-equipe-sudo-obs-dev
+          role: observabilidade

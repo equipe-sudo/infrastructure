@@ -91,6 +91,27 @@ services:
     networks:
       app-net:
 
+  # ==========================================
+  # node_exporter — métricas de host (CPU, RAM, disco, rede, I/O)
+  # ==========================================
+  # Publicado na porta 9100, mas a Security List só aceita origem da subnet da
+  # observabilidade (10.0.2.0/24) — é o scrape do Prometheus, não acesso aberto.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: todo-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|var/lib/docker/.+)($$|/)
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100"
+    mem_limit: 64m
+    networks:
+      app-net:
+
 volumes:
   mongo-data:
     name: todo-mongo-data
