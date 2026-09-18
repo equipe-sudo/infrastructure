@@ -40,10 +40,15 @@ services:
       - mongo-data:/data/db
       - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' || exit 1"]
+      # Checagem leve (só a porta). O mongosh leva ~19s para iniciar nesta VM
+      # de 1 GB e estourava o timeout de 5s, o que marcava o container como
+      # unhealthy e impedia o backend de subir. A prontidão REAL do banco é
+      # verificada pelo /api/health/ready da aplicação (consulta de verdade).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/27017"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
     networks:
       app-net:
         aliases:
