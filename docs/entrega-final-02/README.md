@@ -359,7 +359,9 @@ consulta). Atualização automática: **30 s**.
   suficiente em produção para uma referência definitiva) e devem ser revistos com dados reais.
 - **Ação decorrente:** abrir o painel 6 para ver se a lentidão vem do MongoDB; se não vier, olhar
   CPU/memória da VM e volume de requisições (painel 5).
-- **Validação e limitações:** validado **no ambiente real**: com os buckets corrigidos, a janela de 3 min mostrou `/health` p50 **2,62 ms** / p95 **4,98 ms**, `/health/ready` p50 **6,05 ms** / p95 **10,00 ms** e `/todos` p50 **8,95 ms** / p95 **154,19 ms** (a cauda inclui as escritas de criação). Antes da correção o painel mostrava **2,5 s / 4,75 s** para todas as rotas, porque o SDK usa buckets em milissegundos por padrão e as amostras (em segundos) caíam no primeiro bucket — ver a correção de `explicitBucketBoundaries` na seção 6.2. **Limitação:** `NaN` aparece para rotas sem amostras na janela — é ausência de tráfego, não erro.
+- **Validação e limitações:** validado **no ambiente real**: com os buckets corrigidos, a janela de 3 min mostrou `/health` p50 **2,62 ms** / p95 **4,98 ms**, `/health/ready` p50 **6,05 ms** / p95 **10,00 ms** e `/todos` p50 **8,95 ms** / p95 **154,19 ms** (a cauda inclui as escritas de criação). Antes da correção o painel mostrava **2,5 s / 4,75 s** para todas as rotas, porque o SDK usa buckets em milissegundos por padrão e as amostras (em segundos) caíam no primeiro bucket. **Limitação:** `NaN` aparece para rotas sem amostras na janela — é ausência de tráfego, não erro.
+
+### Painel 4 — Erros: taxa de falhas por rota (4xx / 5xx)
 
 - **Pergunta operacional:** quais falhas estão ocorrendo e **qual parcela** das requisições elas
   representam?
@@ -383,7 +385,9 @@ consulta). Atualização automática: **30 s**.
   preocupa se subir de forma sustentada (pode indicar mudança de contrato ou uso indevido).
 - **Ação decorrente:** 5xx → painel 8 (logs) e painel 7 (banco). 4xx crescente → revisar contrato
   da API e a aplicação cliente.
-- **Validação e limitações:** validado **no ambiente real**: no cenário E3, `POST /todos` sem o campo `text` produziu **5× HTTP 400** (4xx visível em `/todos`); no cenário E4, com o MongoDB parado, a rota `/health/ready` apareceu com **32,79 %** de 5xx. **Limitação (corrigida):** um erro **isolado** podia não aparecer porque a série do contador nascia já com valor 1 e o `increase()` não tinha baseline 0 — resolvido pré-inicializando as séries com 0 (seção 6.2). Rotas sem erro não aparecem como 0 %: a ausência de linha significa 0 % na prática.
+- **Validação e limitações:** validado **no ambiente real**: no cenário E3, `POST /todos` sem o campo `text` produziu **5× HTTP 400** (4xx visível em `/todos`); no cenário E4, com o MongoDB parado, a rota `/health/ready` apareceu com **32,79 %** de 5xx. **Limitação (corrigida):** um erro **isolado** podia não aparecer porque a série do contador nascia já com valor 1 e o `increase()` não tinha baseline 0 — resolvido pré-inicializando as séries com 0. Rotas sem erro não aparecem como 0 %: a ausência de linha significa 0 % na prática.
+
+### Painel 5 — Uso: requisições e operações de negócio
 
 - **Pergunta operacional:** quais funcionalidades são utilizadas e como o volume varia?
 - **Motivo da escolha:** dimensionar a infraestrutura e perceber anomalias de uso (queda súbita =
@@ -409,6 +413,8 @@ consulta). Atualização automática: **30 s**.
   → checar disponibilidade (painel 1).
 - **Validação e limitações:** validado **no ambiente real**: no cenário E2 (40 criações + 20 listagens) o painel registrou `create success = 86,96` e `list success = 45,13` na janela de 10 min, coerentes com o tráfego gerado. **Limitação:** mede apenas o que chega ao back-end — como o SPA passou a ser servido pela **edge (Pages)**, o carregamento de assets não passa mais pelo back-end e só as chamadas de `/api/*` aparecem.
 
+### Painel 6 — Banco de dados: duração das operações MongoDB (p50 / p95)
+
 - **Pergunta operacional:** as operações do back-end com o banco estão funcionando e com qual
   duração?
 - **Motivo da escolha:** o banco é o último elo da cadeia; lentidão ou falha nele se propaga para
@@ -432,6 +438,8 @@ consulta). Atualização automática: **30 s**.
 - **Ação decorrente:** investigar volume (painel 5), índices da coleção `todos` e memória da VM.
 - **Validação e limitações:** validado **no ambiente real**: com o MongoDB saudável as operações ficaram na casa dos milissegundos; no cenário E4, `find` registrou **1 falha** ao parar o banco. **Limitação:** mede o tempo **visto pelo back-end**; o tempo **interno** do MongoDB (ex.: lock, compaction) não é instrumentado — não há exporter do MongoDB nesta versão.
 
+### Painel 7 — Banco de dados: falhas nas operações (%)
+
 - **Pergunta operacional:** qual a proporção de operações de banco que estão falhando?
 - **Motivo da escolha:** o painel 6 mostra duração, não sucesso. Uma operação pode falhar
   rapidamente (ex.: conexão recusada) e não aparecer como lentidão. Este painel fecha essa lacuna.
@@ -453,6 +461,8 @@ consulta). Atualização automática: **30 s**.
   `todo-mongo`; verificar o volume `todo-mongo-data` e a memória da VM (o MongoDB pode ser
   encerrado pelo OOM killer em 1 GB).
 - **Validação e limitações:** **validado no ambiente real (cenário E4)**: com o MongoDB parado, `GET /todos` retornou **500** e o painel saiu de **0,0 %** para **1,44 %** de falhas; após restaurar o banco, voltou a 0 %. **Limitação:** mede o que **o back-end** vê; um erro que impeça o back-end de sequer tentar a operação não é contado aqui (apareceria no painel 4, como 5xx).
+
+### Painel 8 — Logs: erros e avisos registrados pelo back-end
 
 - **Pergunta operacional:** quais erros o back-end registrou, com qual contexto e em que horário?
 - **Motivo da escolha:** métricas dizem *que* algo falhou; os logs dizem *por quê*. É o painel de
@@ -477,3 +487,282 @@ consulta). Atualização automática: **30 s**.
 - **Ação decorrente:** usar o `request_id` para correlacionar com o horário do erro nos painéis 3,
   4 e 7 e identificar a causa raiz.
 - **Validação e limitações:** validado **no ambiente real** de ponta a ponta: no cenário E3, o evento `todos.create.invalid` foi **recuperado do Loki** com a consulta acima (10 ocorrências); no cenário E4, `todos.list.failed` apareceu com a falha de banco. O `request_id` presente em cada linha permite correlacionar com `docker logs todo-backend`. **Limitação:** os logs do **nginx** não são coletados; erros ocorridos antes do Express (ex.: 502 da borda) não aparecem aqui.
+
+### 7.1 Dashboard complementar — Infraestrutura das VMs
+
+Além dos 8 painéis da aplicação, existe o dashboard **Infraestrutura — VMs (equipe-sudo)**, com **12 painéis**
+alimentados pelo `node_exporter` das **duas VMs**:
+
+| Painel | Pergunta que responde |
+|---|---|
+| CPU % e vCPUs por instância | A CPU está saturada? Quantos núcleos existem? |
+| Memória disponível vs total | Há folga de RAM ou risco de OOM/swap? |
+| Load average (1/5/15 min) | A fila é compatível com o número de vCPUs? |
+| Disco — espaço usado (%) | Vai acabar espaço (retenção, imagens Docker)? |
+| Disco — I/O (leitura/escrita por s) | O disco é gargalo? |
+| Rede — bytes/s por interface | Qual o tráfego real da VM? |
+| Processos e swap | Primeiro sinal de pressão de memória. |
+| Uptime | Reinícios inesperados. |
+
+**Coleta:** `node_exporter` em cada VM e o **Prometheus faz o scrape** (modelo *pull*) na porta 9100 —
+liberada na *Security List* **somente** para a subnet da observabilidade (`10.0.2.0/24`).
+
+**Achado real:** as instâncias `E2.1.Micro` são **burstable** e o painel revelou ~10 % de **steal time**
+(CPU cedida ao hypervisor) — um dado que só aparece com métricas de host.
+
+---
+
+## 8. Segurança e controle de acesso à observabilidade
+
+| Pergunta | Resposta |
+|---|---|
+| Quem pode consultar os dados? | Somente as pessoas autenticadas na aplicação **Cloudflare Access** (`grafana-equipe-sudo.kolpzs.com`) — a policy atual é por **e-mail autorizado** |
+| Qual mecanismo controla esse acesso? | **Cloudflare Access** (autenticação na edge, antes de chegar ao túnel) + login local do Grafana (`admin` / senha em secret). O Grafana tem `allow_sign_up = false` e `auth.anonymous.enabled = false` |
+| Como o Grafana é publicado? | Túnel Cloudflare **dedicado** (`obs-tunnel`), separado do túnel da aplicação. A VM da aplicação **não** alcança o Grafana |
+| As portas do Grafana/Prometheus/Loki estão expostas? | Não. Estão publicadas apenas em `127.0.0.1` da VM de observabilidade e a Security List não as libera para a internet |
+| Como os dados chegam sem expor o Collector? | Somente a porta **4318** é aceita, e **apenas** com origem na subnet `10.0.1.0/24` |
+| Há credenciais no repositório? | Não. Senhas e tokens vêm de **GitHub Secrets** e são injetados em um `.env` gerado no runner. O `.env` está no `.gitignore` |
+
+---
+
+## 9. Ações necessárias antes de subir a stack
+
+### 9.1 Cloudflare (manual, uma vez)
+
+1. **Túnel da observabilidade** — criar um túnel dedicado (Zero Trust → Networks → Tunnels) e
+   anotar o token. O token vai para o secret `GRAFANA_TUNNEL_TOKEN`.
+2. **Public hostname** do túnel: `grafana-equipe-sudo.kolpzs.com` → `HTTP` → `grafana:3000`.
+3. **Cloudflare Access**: adicionar uma aplicação (*Self-hosted*) para
+   `grafana-equipe-sudo.kolpzs.com` com policy de **e-mail autorizado** (somente o grupo).
+4. **Exceção para o probe de disponibilidade** — na aplicação de Access do
+   `equipe-sudo.kolpzs.com`, criar uma policy de **`Bypass`** para os caminhos
+   `/api/health` e `/api/health/ready`.
+   *Por quê:* o check sintético precisa receber a resposta real da aplicação. Sem a exceção, o
+   Cloudflare Access devolve a página de login (HTTP 200) e o painel 1 corretamente reporta
+   indisponível (validação de conteúdo falha).
+
+### 9.2 GitHub Secrets (repositório `equipe-sudo/infrastructure`)
+
+| Secret | Para que serve |
+|---|---|
+| `OBS_VM_PUBLIC_IP` | IP público da VM de observabilidade (output `obs_vm_public_ip`) |
+| `GRAFANA_ADMIN_PASSWORD` | Senha do usuário `admin` do Grafana |
+| `GRAFANA_TUNNEL_TOKEN` | Token do túnel dedicado ao Grafana |
+| `PUBLIC_HEALTH_URL` | `https://equipe-sudo.kolpzs.com/api/health` |
+| `PUBLIC_READY_URL` | `https://equipe-sudo.kolpzs.com/api/health/ready` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://<obs_vm_private_ip>:4318` (output `otel_exporter_otlp_endpoint`) |
+
+> Já existentes e reaproveitados: `SSH_PRIVATE_KEY`, `VM_PUBLIC_IP`, `CLOUDFLARE_TUNNEL_TOKEN`,
+> `GHCR_USERNAME`, `GHCR_TOKEN`, `CI_PAT` e os de OCI.
+
+---
+
+## 10. Runbook de deploy
+
+Ordem exata, para não quebrar o ambiente:
+
+```text
+1. MERGE do PR do repositório da aplicação (instrumentação OTel)
+        └─ o workflow de build publica a imagem amd64 no GHCR
+           (roda automaticamente no push da main ou via workflow_dispatch
+            "Build & Push Backend" no repo infrastructure)
+
+2. MERGE do PR do repositório infrastructure
+
+3. TERRAFORM — estado remoto (uma única vez na sua máquina)
+   O estado agora vive no OCI Object Storage (bucket `equipe-sudo-tfstate`,
+   versionado). Este comando adota o estado remoto e ignora o arquivo local:
+        cd terraform
+        mv terraform.tfstate terraform.tfstate.local.bak   # backup do antigo (opcional)
+        terraform init -reconfigure -backend-config="config_file_profile=KOLPZS"
+        terraform plan -var-file=terraform.tfvars   # deve ser "3 to add, 0 to change, 0 to destroy"
+
+4. TERRAFORM APPLY — roda no GitHub Actions
+        GitHub Actions → workflow "Terraform CI/CD" → Run workflow → mode = apply
+        # o job valida que o estado remoto não está vazio antes de aplicar
+        # ao final, anote os outputs: obs_vm_public_ip, obs_vm_private_ip, otel_exporter_otlp_endpoint
+
+5. ANSIBLE na VM de observabilidade (instala Docker + swap)
+        ansible-playbook -i inventory.yml playbook-observability.yml
+
+6. CLOUDFLARE (seção 9.1) e GITHUB SECRETS (seção 9.2)
+
+7. DEPLOY DA OBSERVABILIDADE
+        GitHub Actions → "Deploy Observability Stack" (workflow_dispatch)
+
+8. DEPLOY DA APLICAÇÃO (com a nova imagem instrumentada)
+        GitHub Actions → "Deploy to VM" (workflow_dispatch)
+
+9. VALIDAÇÃO
+        curl -s https://equipe-sudo.kolpzs.com/api/health/ready
+        abrir https://grafana-equipe-sudo.kolpzs.com e conferir os painéis
+```
+
+> ℹ️ **Estado remoto (backend nativo do OCI):** o `terraform.tfstate` fica no bucket
+> `equipe-sudo-tfstate` do OCI Object Storage, com **locking**, usando o **backend nativo `oci`**
+> (Terraform ≥ 1.12) — não é o backend S3-compatível que a Oracle deprecou, e **não usa AWS nem
+> credencial S3**: autentica com a mesma API key OCI já usada pelo provider. Assim o `apply` pode
+> rodar no GitHub Actions e por qualquer integrante do time sem depender de uma máquina.
+>
+> 🛡️ **Trava no CI:** antes de aplicar, o job `terraform-apply` verifica que o estado **não está
+> vazio** (`terraform state list`) e aborta caso contrário, evitando recriar a infraestrutura por um
+> backend mal configurado.
+>
+> 🗂️ **Recuperação do estado:** o bucket tem **versionamento** habilitado, então é possível voltar a
+> uma versão anterior do `tfstate` em caso de erro humano.
+
+---
+
+## 10.1 Automação do deploy (CI/CD)
+
+Os deploys de **aplicação** e **observabilidade** agora são acionados automaticamente:
+
+| Evento | O que dispara | Workflow |
+|---|---|---|
+| Push na `main` que altera `docker/**` | Deploy da aplicação | `deploy-vm.yml` |
+| Push na `main` que altera `observability/**` | Deploy da stack | `deploy-observability.yml` |
+| Imagem nova publicada pelo repo da aplicação | Deploy da aplicação (origin) | `repository_dispatch: app-image-updated` |
+| Imagem nova publicada pelo repo da aplicação | Deploy do front-end na edge | `repository_dispatch: app-image-updated` → `deploy-pages.yml` |
+| Manual | Qualquer um | `workflow_dispatch` (continua disponível) |
+
+O caminho completo fica:
+
+```
+push na main do repo da aplicação
+   └─► "Build & Push Backend/Frontend" (linux/amd64) ──► GHCR
+          └─► repository_dispatch: app-image-updated
+                 ├─► "Deploy to VM"       (origin: docker compose pull + up -d)
+                 └─► "Deploy Frontend (Cloudflare Pages)" (edge: build + wrangler pages deploy)
+```
+
+Para isso, o repositório da **aplicação** precisa do secret **`CI_PAT`** (um token com escopo
+`repo` sobre o repositório `infrastructure`), usado apenas para chamar a API de dispatch:
+
+```bash
+gh secret set CI_PAT --repo equipe-sudo/aula-uniamerica-infraestrutura-cloud --body "<token>"
+```
+
+Sem esse secret o passo é pulado e o build continua verde — o deploy volta a ser manual.
+
+**Proteções aplicadas**
+
+- `concurrency` nos dois workflows: impede dois deploys simultâneos na mesma VM.
+- Filtro de `paths`: um push que só mexe em documentação não dispara deploy.
+- O `terraform apply` **permanece manual** (cria/remove recursos e consome estado). Automatizá-lo
+  num merge é arriscado e poderia gerar custo — por isso fica em `workflow_dispatch`, com o `plan`
+  revisável no PR.
+
+> **Custo:** o repositório `infrastructure` é **privado**, então os minutos de Actions contam contra
+> os **2.000 min/mês gratuitos** do plano Free. Cada deploy leva ~1 min, então a automação fica
+> folgadamente dentro do gratuito.
+
+---
+
+## 11. Testes e evidências
+
+Os cenários abaixo devem ser executados **no ambiente real** e as capturas salvas em
+`docs/entrega-final-02/evidencias/`. Cada evidência deve informar **cenário, data/hora, período
+selecionado no painel e conclusão**.
+
+| # | Cenário | Painéis | Resultado esperado | Resultado observado |
+|---|---|---|---|---|
+| E1 | Uso normal pelo domínio: criar, listar, concluir e excluir uma tarefa em `https://equipe-sudo.kolpzs.com` (operação que percorre back-end **e** MongoDB) | 3, 5, 6 | Aparecem requisições nas rotas, `create/toggle/delete` no painel 5 e operações `insert/save/find/findByIdAndDelete` no painel 6 | _a preencher_ |
+| E2 | **Volume**: gerar ~50 requisições (ex.: `for i in $(seq 1 50); do curl -s -X POST .../api/todos -d "{\"text\":\"teste $i\"}"; done`) | 4, 5 | As taxas e o volume sobem de forma visível em 5 min | _a preencher_ |
+| E3 | **Falha controlada de aplicação**: `POST /api/todos` sem o campo `text` (espera HTTP 400) | 4, 8 | Taxa de 4xx > 0 % em `/todos` **e** o log `todos.create.invalid` aparece no painel 8 | _a preencher_ |
+| E4 | **Falha controlada de banco**: parar o MongoDB (`docker compose stop mongo`) e tentar `GET /api/todos` | 6, 7, 8, 1 | Painel 7 > 0 % de falhas; erro no painel 8; `/health/ready` falha e o painel 1 cai | _a preencher_ |
+| E5 | **Disponibilidade**: abrir o painel 1 e confirmar `100 %` com o Access bypass aplicado | 1, 2 | 100 % e barras verdes contínuas | _a preencher_ |
+| E6 | **Correspondência diagrama ↔ ambiente**: `docker compose ps` nas duas VMs + Security List no console OCI | — | Nomes dos containers, portas e regras iguais aos do diagrama | _a preencher_ |
+
+**Como capturar cada evidência**
+
+```bash
+# Estado dos containers (evidência E6)
+ssh opc@<VM_APP_IP> "cd /home/opc/slots && docker compose ps"
+ssh opc@<OBS_VM_IP> "cd /home/opc/observability && docker compose ps"
+
+# Tráfego normal (E1/E2)
+curl -s   https://equipe-sudo.kolpzs.com/api/todos
+curl -s -X POST https://equipe-sudo.kolpzs.com/api/todos -H 'Content-Type: application/json' -d '{"text":"evidencia"}'
+
+# Falha de aplicação (E3)
+curl -si -X POST https://equipe-sudo.kolpzs.com/api/todos -H 'Content-Type: application/json' -d '{}'
+
+# Falha de banco (E4) — lembre-se de restaurar depois
+ssh opc@<VM_APP_IP> "cd /home/opc/slots && docker compose stop mongo && curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5001/todos || true"
+```
+
+**Restaurar o ambiente após os testes:** `docker compose start mongo` (ou `up -d`) na VM da
+aplicação.
+
+**Evidência do caminho evento → log → painel:** no painel 8, clique em uma linha de erro e copie o
+`request_id`; busque o mesmo `request_id` em `docker logs todo-backend` na VM — o mesmo evento
+aparece nos dois lugares, provando o caminho *geração → coleta → armazenamento → painel*.
+
+### 11.1 Validações de configuração já executadas (fora do ambiente de produção)
+
+Antes de abrir o PR, a configuração foi validada localmente (a execução real na VM é feita pelo
+grupo, após o merge):
+
+| Validação | Comando | Resultado |
+|---|---|---|
+| Terraform | `terraform validate` / `terraform plan` | Válido; plano **3 to add, 0 to change, 0 to destroy** |
+| Compose (app e observabilidade) | `docker compose config -q` | Válidos |
+| Config do OTel Collector | `otelcol-contrib validate` | Válido (receiver `http_check`, `validations`, exporters) |
+| Config do Prometheus | `promtool check config` | `SUCCESS` |
+| Config do Loki | `loki -verify-config` | Válido |
+| Dashboard | `python -m json.tool` + API do Grafana | Provisionado, com os 8 painéis |
+| Instrumentação do back-end | execução local + collector falso | `/v1/metrics` e `/v1/logs` recebidos |
+| Pipeline ponta a ponta (local) | app + collector + Prometheus + Loki + Grafana | Métricas em Prometheus e log recuperado do Loki; **as 8 consultas dos painéis retornaram dados** |
+
+---
+
+## 12. Limitações declaradas (transparência)
+
+1. **Redundância do front-end:** o SPA é servido pelo **Cloudflare Pages**, que distribui o conteúdo
+   por **múltiplos pontos de presença (PoPs) da edge** — ou seja, o front-end tem atendimento
+   redundante e serverless. **Limitação honesta:** é uma redundância **gerenciada pelo provedor**
+   (não controlamos as réplicas); o que controlamos é o código publicado e o domínio. O back-end e o
+   banco continuam em **origem única** na VM (não há réplica de API/banco nesta entrega) — o diagrama
+   não desenha réplicas que não existem.
+2. **Logs do nginx não coletados:** apenas os logs do back-end chegam ao Loki. Erros ocorridos
+   antes do Express (ex.: 502 do túnel) não aparecem no painel 8.
+3. **Sem traces:** o SDK está configurado com `OTEL_TRACES_EXPORTER=none` e não há backend de
+   traces (Tempo) para não sobrecarregar a VM de 1 GB. A correlação é feita por `request_id`.
+4. **Métricas de host:** existem para as **duas VMs** via `node_exporter` (CPU, memória, disco,
+   rede, I/O, load, uptime) — ver o dashboard *Infraestrutura — VMs*. **O interior do MongoDB
+   continua não instrumentado** (não há exporter): o painel 6 reflete o que o back-end vê.
+
+---
+
+## 13. Arquivos desta entrega
+
+**Repositório `infrastructure`**
+
+| Caminho | Conteúdo |
+|---|---|
+| `terraform/variables.tf` | Correção da validação de shape + variáveis da observabilidade |
+| `terraform/vcn.tf` | Subnet da observabilidade + Security List (isolamento OTLP) |
+| `terraform/compute.tf` | VM da observabilidade + proteção contra recriação da VM em uso |
+| `terraform/container-registry.tf` | Remoção do OCIR legado + nota de migração do estado |
+| `terraform/outputs.tf` | Outputs da observabilidade e do endpoint OTLP |
+| `observability/docker-compose.yml` | Stack Grafana + Prometheus + Loki + Collector + túnel |
+| `observability/otel/config.yaml` | Pipelines de métricas/logs e o probe de disponibilidade |
+| `observability/prometheus/prometheus.yml` | Prometheus com remote_write receiver |
+| `observability/loki/loki-config.yaml` | Loki single-binary com retenção de 30 dias |
+| `observability/grafana/` | Provisioning (datasources + dashboards), o dashboard da aplicação e o de **infraestrutura das VMs** |
+| `docker/docker-compose.yml` e `observability/docker-compose.yml` | Serviço `node-exporter` nas duas VMs (métricas de host) |
+| `docker/docker-compose.yml` | Aplicação com as variáveis de OpenTelemetry |
+| `.github/workflows/deploy-observability.yml` | Deploy da stack na VM de observabilidade |
+| `.github/workflows/deploy-vm.yml` | Deploy da aplicação com o endpoint OTLP |
+| `ansible/playbook-observability.yml` / `inventory.yml` | Preparação da VM de observabilidade |
+| `docs/entrega-final-02/` | Este documento, o diagrama e as evidências |
+
+**Repositório `aula-uniamerica-infraestrutura-cloud`**
+
+| Caminho | Conteúdo |
+|---|---|
+| `backend/instrumentation.js` | SDK OpenTelemetry (métricas e logs OTLP) |
+| `backend/logger.js` | Logger estruturado JSON + emissão de LogRecord |
+| `backend/index.js` | Instrumentação HTTP, contadores de negócio, `dbCall`, health/readiness |
+| `backend/Dockerfile` | Carrega a instrumentação e define healthcheck |
+| `.github/workflows/build-*.yml` | Correção da plataforma de build para `linux/amd64` |
