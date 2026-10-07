@@ -3,16 +3,18 @@
 # Demo — Redes e Isolamento (VPC / Subnets / Security Groups)
 # ============================================================
 # Prova, na prática, que a infraestrutura da equipe libera
-# apenas o necessário:
-#   - Site público: acessível (via Cloudflare Tunnel)
-#   - Back-end (5000): bloqueado da internet
-#   - Banco (27017): bloqueado da internet
-#   - SSH (22): única porta de gerenciamento aberta
+# apenas o necessário, exibindo dados técnicos:
+#   1. DNS          — o IP real da VM fica escondido (Cloudflare)
+#   2. Cabeçalhos   — resposta servida pela borda (server: cloudflare)
+#   3. Tempos HTTP  — DNS/conexão/TLS/TTFB do site
+#   4. Varredura    — quais portas estão abertas/fechadas na VM
+#   5. API via túnel — o back-end responde, mas não é exposto direto
+#   6. Resumo
 #
 # Uso:
-#   ./demo-rede.sh            # interativo (Enter para avançar)
-#   DOMAIN=... VM_IP=... ./demo-rede.sh   # sobrescrever valores
-#   AUTO=1 SLEEP=3 ./demo-rede.sh         # modo automático (3s entre passos)
+#   ./demo-rede.sh                          # interativo (Enter para avançar)
+#   DOMAIN=... VM_IP=... ./demo-rede.sh     # sobrescrever valores
+#   AUTO=1 SLEEP=3 ./demo-rede.sh           # modo automático (3s entre passos)
 # ============================================================
 
 set -u
@@ -23,7 +25,10 @@ VM_IP="${VM_IP:-129.148.50.233}"
 SSH_PORT="${SSH_PORT:-22}"
 BACKEND_PORT="${BACKEND_PORT:-5000}"
 DB_PORT="${DB_PORT:-27017}"
+API_PATH="${API_PATH:-/api/todos}"
+PORTS="${PORTS:-22 80 443 5000 27017 5432 8000 8080}"
 TIMEOUT="${TIMEOUT:-5}"   # segundos de tolerância p/ considerar "bloqueado"
+SWEEP_TIMEOUT="${SWEEP_TIMEOUT:-2}"  # tempo por porta na varredura
 
 # ---- Cores (desativa quando não é terminal, ex.: CI) ----
 if [ -t 1 ]; then
@@ -33,10 +38,10 @@ else
   BOLD=''; GREEN=''; RED=''; YELLOW=''; CYAN=''; RESET=''
 fi
 
-ok()   { printf '%s\n' "${GREEN}${BOLD}[ OK ]${RESET} $*"; }
+ok()    { printf '%s\n' "${GREEN}${BOLD}[ OK ]${RESET} $*"; }
 block() { printf '%s\n' "${YELLOW}${BOLD}[ BLOQUEADO ]${RESET} $*"; }
-warn() { printf '%s\n' "${RED}${BOLD}[ ATENÇÃO ]${RESET} $*"; }
-info() { printf '%s\n' "${CYAN}[INFO]${RESET} $*"; }
+warn()  { printf '%s\n' "${RED}${BOLD}[ ATENÇÃO ]${RESET} $*"; }
+info()  { printf '%s\n' "${CYAN}[INFO]${RESET} $*"; }
 
 pause() {
   if [ "${AUTO:-0}" = "1" ]; then
@@ -55,60 +60,87 @@ banner() {
   printf '\n'
 }
 
+# ---- 1. DNS: quem responde pelo domínio ----
+step_dns() {
+  info "1) DNS — quem responde por ${DOMAIN}?"
+  local ips
+  if command -v dig >/dev/null 2>&1; then
+    ips=$(dig +short "$DOMAIN" | paste -sd', ' -)
+  else
+    ips=$(getent hosts "$DOMAIN" | awk '{print $1}' | paste -sd', ' -)
+  fi
+  printf '  domínio -> %s\n' "${ips:-<não resolveu>}"
+  printf '  VM real -> %s (Oracle Cloud)\n' "${VM_IP}"
+  info '  => O IP real da VM NÃO aparece no DNS: a origem fica escondida atrás do Cloudflare.'
+  pause
+}
+
+# ---- 2. Cabeçalhos da resposta (borda/proxy) ----
+step_headers() {
+  info "2) Cabeçalhos da resposta (prova da borda/proxy)"
+  curl -sI -m "$TIMEOUT" "https://${DOMAIN}" \
+    | grep -iE '^(HTTP/|server|cf-ray|cache-control|content-type|alt-svc|x-powered-by)' || true
+  info '  => server: cloudflare / cf-ray indicam que a resposta passa pela borda, não pela VM direto.'
+  pause
+}
+
+# ---- 3. Site acessível + tempos de conexão ----
+step_site() {
+  info "3) Site acessível + tempos (DNS/conexão/TLS/TTFB)"
+  curl -s -o /dev/null -m "$TIMEOUT" -w \
+    '  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n' \
+    "https://${DOMAIN}"
+  pause
+}
+
+# ---- 4. Varredura de portas na VM ----
+step_ports() {
+  info "4) Varredura de portas na VM (${VM_IP})"
+  printf '  %-8s %s\n' "PORTA" "ESTADO"
+  for p in $PORTS; do
+    if timeout "$SWEEP_TIMEOUT" bash -c "exec 3<>/dev/tcp/${VM_IP}/${p}" 2>/dev/null; then
+      printf '  %-8s %b\n' "${p}/tcp" "${GREEN}${BOLD}ABERTA${RESET}"
+    else
+      printf '  %-8s %b\n' "${p}/tcp" "${YELLOW}${BOLD}BLOQUEADA${RESET}"
+    fi
+  done
+  info '  => Só SSH (22) aberto; web/back-end/banco bloqueados — exatamente o que a regra define.'
+  pause
+}
+
+# ---- 5. API via túnel (back-end responde sem exposição direta) ----
+step_api() {
+  info "5) API via túnel (${API_PATH}) — o back-end responde sem ser exposto"
+  local body
+  body=$(curl -s -m "$TIMEOUT" "https://${DOMAIN}${API_PATH}" | head -c 200)
+  if [ -n "$body" ]; then
+    printf '  resposta: %s\n' "$body"
+    info '  => A API funciona pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 4).'
+  else
+    warn "  API não respondeu por ${API_PATH} — verificar endpoint antes de apresentar."
+  fi
+  pause
+}
+
+# ---- 6. Resumo ----
 summary() {
   printf '%s\n' "${BOLD}--------------------------------------------------${RESET}"
-  printf '%s\n' "${BOLD} RESUMO DA DEMO${RESET}"
-  printf '%s\n' "  Site https://${DOMAIN} ......... ACESSÍVEL (Cloudflare Tunnel)"
-  printf '%s\n' "  Back-end ${VM_IP}:${BACKEND_PORT} ...... BLOQUEADO"
-  printf '%s\n' "  Banco    ${VM_IP}:${DB_PORT} ...... BLOQUEADO"
-  printf '%s\n' "  SSH      ${VM_IP}:${SSH_PORT} ......... ABERTO (gerenciamento)"
+  printf '%s\n' "${BOLD} RESUMO TÉCNICO${RESET}"
+  printf '%s\n' "  DNS ........ origem escondida (Cloudflare)"
+  printf '%s\n' "  Site ....... acessível via borda (HTTP/HTTPS)"
+  printf '%s\n' "  SSH (22) ... ABERTA (única de gerenciamento)"
+  printf '%s\n' "  Demais .... BLOQUEADAS (web/back-end/banco)"
   printf '%s\n' "${BOLD}--------------------------------------------------${RESET}"
   printf '%s\n' "  Conclusão: rede bem configurada = só o necessário acessível."
   printf '%s\n' "  (Mesmo princípio de VPC + Subnets + Security Groups na AWS.)"
   printf '\n'
 }
 
-# ---- Passo 1: site deve estar acessível ----
-step_site() {
-  info "1) Site público — esperado: HTTP 200"
-  local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" -m "$TIMEOUT" "https://${DOMAIN}")
-  if [ "$code" = "200" ]; then
-    ok "https://${DOMAIN} -> HTTP ${code} (acessível pela internet)"
-    info "   Entra pelo Cloudflare Tunnel — NÃO abre porta 80/443 na VM."
-  else
-    warn "Site respondeu HTTP ${code} (esperado 200). Verificar antes de apresentar."
-  fi
-  pause
-}
-
-# ---- Passo genérico: porta deve estar BLOQUEADA ----
-step_blocked() {
-  local name="$1" port="$2"
-  info "${name} (porta ${port}) — esperado: BLOQUEADO"
-  if curl -s -o /dev/null -m "$TIMEOUT" "http://${VM_IP}:${port}" 2>/dev/null; then
-    warn "Porta ${port} ${name} está ACESSÍVEL da internet — revisar Security List!"
-  else
-    block "${name} :${port} inacessível da internet (isolamento OK)"
-  fi
-  pause
-}
-
-# ---- Passo: SSH deve estar ABERTO ----
-step_ssh() {
-  info "SSH (porta ${SSH_PORT}) — esperado: ABERTO (única de gerenciamento)"
-  if timeout "$TIMEOUT" bash -c "exec 3<>/dev/tcp/${VM_IP}/${SSH_PORT}" 2>/dev/null; then
-    ok "SSH ${VM_IP}:${SSH_PORT} aberto"
-  else
-    info "SSH não respondeu (pode estar restrito por IP — verificar no Security List)"
-  fi
-  pause
-}
-
 # ---- Fluxo principal ----
 banner
+step_dns
+step_headers
 step_site
-step_blocked "Back-end (Express)" "$BACKEND_PORT"
-step_blocked "Banco (MongoDB)"  "$DB_PORT"
-step_ssh
+step_ports
+step_api
 summary

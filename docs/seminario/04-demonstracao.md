@@ -60,7 +60,7 @@ Para não precisar digitar na frente da turma, a demo está automatizada de trê
 ./scripts/demo-rede.sh
 ```
 
-- Passo a passo: site → back-end bloqueado → banco bloqueado → SSH aberto → resumo.
+- Passo a passo: DNS → cabeçalhos → tempos HTTP → varredura de portas → API via túnel → resumo.
 - Controle o ritmo: aperte `Enter` para avançar (ou rode `AUTO=1 SLEEP=3` para avançar sozinho).
 - Sobrescrever valores se o IP mudar: `DOMAIN=... VM_IP=... ./scripts/demo-rede.sh`.
 
@@ -89,63 +89,31 @@ terraform plan    # SEGURO: mostra "no changes" e prova que a infra é declarati
 
 ---
 
-## Roteiro da apresentação (~3 min)
+## Roteiro da apresentação (~3–4 min)
 
-### Passo 1 — Mostrar a rede isolada (30s)
+### Antes de rodar (contexto, 20s)
 
-Abra o console da OCI (ou um screenshot) e aponte:
+Abra o terminal (com `./scripts/demo-rede.sh` já digitado) e, na outra aba, o console OCI.
 
-- **VCN** `vcn-equipe-sudo-dev` → é o nosso "VPC".
-- **Subnet** `sn-equipe-sudo-public-dev` → é a nossa "subnet".
-- **Internet Gateway** `igw-equipe-sudo-dev` → a porta de saída para a internet.
+> Fala: "Vou provar que a nossa rede só libera o necessário, usando um script que a equipe
+> preparou e os dados técnicos de cada camada."
 
-> Fala: "Na AWS isso se chama VPC e Subnet. Na OCI, que é onde rodamos, se chama VCN e
-> subnet. Mesma ideia: uma rede privada isolada dentro da nuvem."
+### Rodando o script (o que falar em cada passo)
 
-### Passo 2 — Provar que o site funciona (30s)
+Rode `./scripts/demo-rede.sh` e narre cada passo, apertando `Enter` para avançar:
 
-```bash
-curl -sI https://equipe-sudo.kolpzs.com
-```
+| Passo do script | O que aparece | O que falar |
+|---|---|---|
+| 1. DNS | IP do domínio ≠ IP da VM | "O IP real da VM não aparece no DNS — a origem fica escondida atrás do Cloudflare." |
+| 2. Cabeçalhos | `server: cloudflare`, `cf-ray` | "A resposta vem pela borda (edge), não da VM direto." |
+| 3. Tempos HTTP | DNS/conexão/TLS/TTFB | "Mede o caminho real da requisição até a borda." |
+| 4. Varredura | 22 aberta, resto bloqueado | "Só SSH está aberto. Web, back-end e banco — tudo bloqueado." |
+| 5. API | dados de `/api/todos` | "O back-end responde pelo túnel, mesmo com a porta 5000 fechada direto." |
+| 6. Resumo | tabela final | "Tudo bloqueado, exceto o necessário." |
 
-**Saída esperada (resumo):**
-```
-HTTP/2 200
-content-type: text/html
-...
-```
+### Depois do script — o porquê (console OCI, 40s)
 
-> Fala: "O site está no ar e acessível pela internet. Mas reparem: ele **não** entra por uma
-> porta aberta na VM. Ele entra pelo **Cloudflare Tunnel**, uma conexão de **saída**. Isso já é
-> isolamento: a VM não precisa abrir porta 80/443 para o mundo."
-
-### Passo 3 — Provar que o back-end está BLOQUEADO (40s)
-
-```bash
-curl -m 5 -v http://129.148.50.233:5000/health 2>&1 | tail -n 3
-```
-
-**Saída esperada:** o comando trava e termina com `Operation timed out` (ou "connection timed out").
-
-> Fala: "O back-end roda na porta 5000 dentro da VM, mas **não** está acessível pela internet.
-> O Security List bloqueia tudo que não seja SSH. Isso é exatamente o que um **Security Group**
-> faz na AWS: liberar só o necessário."
-
-### Passo 4 — Provar que o banco está BLOQUEADO (30s)
-
-```bash
-curl -m 5 -v http://129.148.50.233:27017 2>&1 | tail -n 3
-```
-
-**Saída esperada:** `Operation timed out` novamente.
-
-> Fala: "Mesma coisa com o MongoDB, na porta 27017. Banco de dados nunca deve ser exposto
-> à internet. Na AWS, o banco ficaria numa **subnet privada** com um Security Group liberando
-> acesso só para a aplicação."
-
-### Passo 5 — Mostrar O PORQUÊ: o firewall (40s)
-
-No console OCI, abra o **Security List** da subnet e mostre as regras de entrada:
+Abra o **Security List** da subnet e mostre as regras de entrada:
 
 | Direção | Protocolo/Porta | Origem | Situação |
 |---|---|---|---|
@@ -154,11 +122,12 @@ No console OCI, abra o **Security List** da subnet e mostre as regras de entrada
 | Egress | ALL | 0.0.0.0/0 | Permitido (necessário p/ tunnel + updates) |
 
 > Fala: "A regra é simples: **tudo bloqueado, exceto o necessário**. É a mesma filosofia do
-> Security Group da AWS. Só entra SSH (para operação); o tráfego web entra pelo tunnel."
+> Security Group da AWS. Só entra SSH; o tráfego web entra pelo tunnel."
+>
+> *(Opcional, mais impacto: rode `cd terraform && terraform plan` para mostrar que essa regra
+> é código versionado — nunca `apply` ao vivo.)*
 
-### Passo 6 — Traduzir para AWS (30s)
-
-Mostre a tabela de equivalência:
+### Traduzir para AWS (30s)
 
 | OCI (demonstrado ao vivo) | AWS (equivalente) |
 |---|---|

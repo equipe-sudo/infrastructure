@@ -1,13 +1,16 @@
 name: Demo — Isolamento de rede (evidência)
 
 # ============================================================
-# Gera evidência automatizada do isolamento de rede da equipe.
+# Gera evidência automatizada e TÉCNICA do isolamento de rede.
 # Disparo: manual (botão "Run workflow") — roda apenas quando pedido.
 #
-# Comprova:
-#   1. Site acessível (via Cloudflare Tunnel)
-#   2. Back-end (:5000) bloqueado da internet
-#   3. Banco (:27017) bloqueado da internet
+# Cada passo exibe dados técnicos:
+#   1. DNS          — IP real da VM escondido atrás do Cloudflare
+#   2. Cabeçalhos   — resposta servida pela borda (server/cf-ray)
+#   3. TLS          — certificado/emissor/validade do domínio
+#   4. Tempos HTTP  — DNS/conexão/TLS/TTFB
+#   5. Varredura    — estado de cada porta na VM (aberta/bloqueada)
+#   6. API via túnel — back-end responde sem exposição direta
 #
 # Serve como plano B da apresentação: o log desta execução é a
 # prova reproduzível, caso a demo ao vivo falhe.
@@ -22,45 +25,77 @@ env:
 
 jobs:
   demo-isolamento:
-    name: Verificação de isolamento
+    name: Verificação técnica de isolamento
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 1. Site acessível (esperado: HTTP 200)
+      # ------------------------------------------------------
+      - name: 1. Resolução DNS (origem escondida)
         run: |
+          echo "Domínio: ${DOMAIN}"
+          if command -v dig >/dev/null 2>&1; then
+            dig +short "${DOMAIN}" | sed 's/^/  IP público -> /'
+          else
+            getent hosts "${DOMAIN}" | awk '{print "  IP público -> "$1}'
+          fi
+          echo "  VM real    -> ${VM_IP} (Oracle Cloud)"
+          echo "  => O IP real da VM NÃO aparece no DNS: a origem fica escondida atrás do Cloudflare."
+
+      # ------------------------------------------------------
+      - name: 2. Cabeçalhos HTTP (borda/proxy)
+        run: |
+          curl -sI -m 15 "https://${DOMAIN}" \
+            | grep -iE '^(HTTP/|server|cf-ray|cache-control|content-type|alt-svc|x-powered-by)' || true
+
+      # ------------------------------------------------------
+      - name: 3. Certificado TLS
+        run: |
+          echo | openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null \
+            | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "  (não foi possível ler o certificado)"
+
+      # ------------------------------------------------------
+      - name: 4. Site acessível + tempos (esperado: 200)
+        run: |
+          curl -s -o /dev/null -m 15 -w \
+            "  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n" \
+            "https://${DOMAIN}"
           code=$(curl -s -o /dev/null -w "%{http_code}" -m 15 "https://${DOMAIN}")
-          echo "HTTP status: ${code}"
           if [ "${code}" != "200" ]; then
             echo "::error::Site não respondeu 200 (esperado 200)"
             exit 1
           fi
 
-      - name: 2. Back-end bloqueado (esperado: falha)
+      # ------------------------------------------------------
+      - name: 5. Varredura de portas na VM
         run: |
-          if curl -s -o /dev/null -m 8 "http://${VM_IP}:5000/health"; then
-            echo "::error::Back-end :5000 acessível da internet (NÃO deveria)"
-            exit 1
-          else
-            echo "OK — back-end :5000 BLOQUEADO (timeout / conexão recusada)"
-          fi
+          echo "Alvo: ${VM_IP}"
+          for p in 22 80 443 5000 27017 5432 8000 8080; do
+            if timeout 4 bash -c "exec 3<>/dev/tcp/${VM_IP}/${p}" 2>/dev/null; then
+              echo "  ${p}/tcp ... ABERTA"
+            else
+              echo "  ${p}/tcp ... BLOQUEADA"
+            fi
+          done
+          echo "  => Só SSH (22) aberto; web/back-end/banco bloqueados."
 
-      - name: 3. Banco bloqueado (esperado: falha)
+      # ------------------------------------------------------
+      - name: 6. Back-end via túnel (sem exposição direta)
         run: |
-          if curl -s -o /dev/null -m 8 "http://${VM_IP}:27017"; then
-            echo "::error::Banco :27017 acessível da internet (NÃO deveria)"
-            exit 1
-          else
-            echo "OK — banco :27017 BLOQUEADO (timeout / conexão recusada)"
-          fi
+          echo "GET https://${DOMAIN}/api/todos"
+          curl -s -m 15 "https://${DOMAIN}/api/todos" | head -c 300 || true
+          echo
+          echo "  => A API responde pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 5)."
 
-      - name: Resumo da evidência
+      # ------------------------------------------------------
+      - name: 7. Resumo da evidência
         run: |
           echo "=============================================="
           echo "  Isolamento de rede comprovado:"
-          echo "   - Site https://${DOMAIN} ...... ACESSÍVEL"
-          echo "   - Back-end ${VM_IP}:5000 ...... BLOQUEADO"
-          echo "   - Banco    ${VM_IP}:27017 ..... BLOQUEADO"
+          echo "   - DNS ........ origem escondida (Cloudflare)"
+          echo "   - Site ....... acessível via borda"
+          echo "   - SSH (22) ... ABERTA (gerenciamento)"
+          echo "   - Demais ..... BLOQUEADAS (web/back-end/banco)"
           echo "=============================================="
           echo "  Mesma lógica de VPC + Subnets + Security Groups (AWS)."

@@ -59,14 +59,15 @@ O script **pausa a cada passo** e espera você apertar `Enter`. Use isso para na
 | Ação | Você faz | O que aparece | Você fala |
 |---|---|---|---|
 | Iniciar | `./scripts/demo-rede.sh` + Enter | Banner da demo | "Vou provar que nossa rede só libera o necessário." |
-| Passo 1 | Enter | `Site -> HTTP 200` (verde) | "O site está no ar pela internet, entrando pelo Cloudflare Tunnel." |
-| Passo 2 | Enter | `Back-end :5000 BLOQUEADO` (amarelo) | "O back-end NÃO é acessível de fora. Está isolado." |
-| Passo 3 | Enter | `Banco :27017 BLOQUEADO` (amarelo) | "O banco também não. Ninguém chega nele pela internet." |
-| Passo 4 | Enter | `SSH :22 aberto` (verde) | "Só a porta de gerenciamento (SSH) está aberta." |
-| Resumo | — | Tabela resumida | "Tudo bloqueado, exceto o necessário." |
+| Passo 1 | Enter | IP do domínio ≠ IP da VM | "O IP real da VM não aparece no DNS — a origem fica escondida atrás do Cloudflare." |
+| Passo 2 | Enter | `server: cloudflare`, `cf-ray` | "A resposta vem pela borda, não da VM direto." |
+| Passo 3 | Enter | DNS/conexão/TLS/TTFB | "Mede o caminho real da requisição até a borda." |
+| Passo 4 | Enter | 22 aberta, resto bloqueado | "Só SSH está aberto. Web, back-end e banco — tudo bloqueado." |
+| Passo 5 | Enter | dados de `/api/todos` | "O back-end responde pelo túnel, mesmo com a porta 5000 fechada." |
+| Resumo | — | Tabela técnica | "Tudo bloqueado, exceto o necessário." |
 | Fechamento | — | — | "É o mesmo princípio de VPC + Subnets + Security Groups na AWS." |
 
-**Duração total:** ~3 min (30–40s por passo + narração).
+**Duração total:** ~3–4 min (30–40s por passo + narração).
 
 ### Ritmo (como controlar)
 
