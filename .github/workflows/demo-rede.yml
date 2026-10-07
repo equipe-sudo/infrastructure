@@ -109,7 +109,7 @@ jobs:
           result=$(curl -s -o /dev/null -m 15 -w "HTTP=%{http_code} DNS=%{time_namelookup}s TLS=%{time_appconnect}s TTFB=%{time_starttransfer}s" \
             -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
             -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
-            "https://${DOMAIN}/")
+            "https://${DOMAIN}/api/todos")
           echo "  ${result}"
           body=$(curl -s -m 15 \
             -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \

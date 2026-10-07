@@ -142,7 +142,7 @@ step_auth() {
   curl -s -o /dev/null -m "$TIMEOUT" -w '  HTTP=%{http_code}  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n' \
     -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
     -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
-    "https://${DOMAIN}/"
+    "https://${DOMAIN}${API_PATH}"
   local body
   body=$(curl -s -m "$TIMEOUT" \
     -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
