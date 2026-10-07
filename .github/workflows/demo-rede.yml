@@ -1,0 +1,66 @@
+name: Demo — Isolamento de rede (evidência)
+
+# ============================================================
+# Gera evidência automatizada do isolamento de rede da equipe.
+# Disparo: manual (botão "Run workflow") — roda apenas quando pedido.
+#
+# Comprova:
+#   1. Site acessível (via Cloudflare Tunnel)
+#   2. Back-end (:5000) bloqueado da internet
+#   3. Banco (:27017) bloqueado da internet
+#
+# Serve como plano B da apresentação: o log desta execução é a
+# prova reproduzível, caso a demo ao vivo falhe.
+# ============================================================
+
+on:
+  workflow_dispatch:
+
+env:
+  DOMAIN: equipe-sudo.kolpzs.com
+  VM_IP: 129.148.50.233
+
+jobs:
+  demo-isolamento:
+    name: Verificação de isolamento
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 1. Site acessível (esperado: HTTP 200)
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 15 "https://${DOMAIN}")
+          echo "HTTP status: ${code}"
+          if [ "${code}" != "200" ]; then
+            echo "::error::Site não respondeu 200 (esperado 200)"
+            exit 1
+          fi
+
+      - name: 2. Back-end bloqueado (esperado: falha)
+        run: |
+          if curl -s -o /dev/null -m 8 "http://${VM_IP}:5000/health"; then
+            echo "::error::Back-end :5000 acessível da internet (NÃO deveria)"
+            exit 1
+          else
+            echo "OK — back-end :5000 BLOQUEADO (timeout / conexão recusada)"
+          fi
+
+      - name: 3. Banco bloqueado (esperado: falha)
+        run: |
+          if curl -s -o /dev/null -m 8 "http://${VM_IP}:27017"; then
+            echo "::error::Banco :27017 acessível da internet (NÃO deveria)"
+            exit 1
+          else
+            echo "OK — banco :27017 BLOQUEADO (timeout / conexão recusada)"
+          fi
+
+      - name: Resumo da evidência
+        run: |
+          echo "=============================================="
+          echo "  Isolamento de rede comprovado:"
+          echo "   - Site https://${DOMAIN} ...... ACESSÍVEL"
+          echo "   - Back-end ${VM_IP}:5000 ...... BLOQUEADO"
+          echo "   - Banco    ${VM_IP}:27017 ..... BLOQUEADO"
+          echo "=============================================="
+          echo "  Mesma lógica de VPC + Subnets + Security Groups (AWS)."

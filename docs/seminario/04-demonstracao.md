@@ -47,6 +47,48 @@ terraform output vm_public_ip
 
 ---
 
+## Automação (3 opções)
+
+Para não precisar digitar na frente da turma, a demo está automatizada de três formas:
+
+### Opção 1 — Script interativo (recomendado para o palco)
+
+`scripts/demo-rede.sh` roda tudo sozinho, pausando a cada passo (você aperta Enter e narra).
+
+```bash
+# do diretório raiz do repo
+./scripts/demo-rede.sh
+```
+
+- Passo a passo: site → back-end bloqueado → banco bloqueado → SSH aberto → resumo.
+- Controle o ritmo: aperte `Enter` para avançar (ou rode `AUTO=1 SLEEP=3` para avançar sozinho).
+- Sobrescrever valores se o IP mudar: `DOMAIN=... VM_IP=... ./scripts/demo-rede.sh`.
+
+### Opção 2 — Workflow de evidência (plano B / prova reprodutível)
+
+`.github/workflows/demo-rede.yml` executa as mesmas checagens no GitHub Actions (disparo
+manual pelo botão "Run workflow"). O log da execução é a **prova** de isolamento — útil se a
+internet do local da apresentação cair.
+
+- Vantagem: roda em ambiente controlado, gera um link público da execução.
+- Como usar: aba **Actions → Demo — Isolamento de rede → Run workflow**.
+
+### Opção 3 — Terraform (mostrar que a infra é código)
+
+A regra que **faz o isolamento acontecer** está em `terraform/vcn.tf` (Security List: só SSH 22
+ingress + egress total). Você pode exibir isso de forma segura:
+
+```bash
+cd terraform
+terraform plan    # SEGURO: mostra "no changes" e prova que a infra é declarativa
+```
+
+- **Recomendado:** mostrar `terraform plan` (rápido, sem efeito colateral) + abrir o `vcn.tf`.
+- **Evitar** `terraform apply` ao vivo: é lento, depende de credenciais OCI e, se houver
+  drift no estado, pode alterar/re criar recursos e derrubar a aplicação que está rodando.
+
+---
+
 ## Roteiro da apresentação (~3 min)
 
 ### Passo 1 — Mostrar a rede isolada (30s)
