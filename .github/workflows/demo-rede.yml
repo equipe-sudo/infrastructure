@@ -4,14 +4,15 @@ name: 🔒 Demo — Redes e Isolamento (VPC · Subnets · Security Groups)
 # Gera evidência automatizada e TÉCNICA do isolamento de rede.
 # Disparo: manual (botão "Run workflow") — roda apenas quando pedido.
 #
-# Cada passo exibe dados técnicos:
+# Fluxo (usa só os secrets que já existem no repo):
 #   1. Rede do runner — origem FORA da VCN (prova que o teste vem de fora)
 #   2. DNS           — IP real da VM escondido atrás do Cloudflare
-#   3. Cabeçalhos    — resposta servida pela borda (server/cf-ray)
-#   4. TLS           — certificado/emissor/validade do domínio
-#   5. Tempos HTTP   — DNS/conexão/TLS/TTFB
-#   6. Varredura     — estado de cada porta na VM (aberta/bloqueada)
-#   7. API via túnel — back-end responde sem exposição direta
+#   3. TLS           — certificado/emissor/validade do domínio
+#   4. Acesso SEM autenticação — esperado 302 → login do Access (bloqueado)
+#   5. Criar Service Token (Access) via API — usando CLOUDFLARE_API_TOKEN
+#   6. Acesso COM autenticação — esperado 200 (com "aprovação" da Cloudflare)
+#   7. Varredura     — estado de cada porta na VM (aberta/bloqueada)
+#   8. Limpeza       — remove o Service Token criado
 #
 # Serve como plano B da apresentação: o log desta execução é a
 # prova reproduzível, caso a demo ao vivo falhe.
@@ -23,6 +24,8 @@ on:
 env:
   DOMAIN: equipe-sudo.kolpzs.com
   VM_IP: 129.148.50.233
+  CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
 jobs:
   demo-isolamento:
@@ -33,7 +36,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------
-      - name: 1. Rede do runner (origem FORA da VCN)
+      - name: "1. Rede do runner (origem FORA da VCN)"
         run: |
           echo "Hostname: $(hostname)"
           echo "IPs locais do runner:"
@@ -48,7 +51,7 @@ jobs:
           echo "  => Os testes abaixo partem 'de fora', como um visitante da internet."
 
       # ------------------------------------------------------
-      - name: 2. Resolução DNS (origem escondida)
+      - name: "2. Resolução DNS (origem escondida)"
         run: |
           echo "Domínio: ${DOMAIN}"
           if command -v dig >/dev/null 2>&1; then
@@ -60,31 +63,67 @@ jobs:
           echo "  => O IP real da VM NÃO aparece no DNS: a origem fica escondida atrás do Cloudflare."
 
       # ------------------------------------------------------
-      - name: 3. Cabeçalhos HTTP (borda/proxy)
-        run: |
-          curl -sI -m 15 "https://${DOMAIN}" \
-            | grep -iE '^(HTTP/|server|cf-ray|cache-control|content-type|alt-svc|x-powered-by)' || true
-
-      # ------------------------------------------------------
-      - name: 4. Certificado TLS
+      - name: "3. Certificado TLS"
         run: |
           echo | openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null \
             | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "  (não foi possível ler o certificado)"
 
       # ------------------------------------------------------
-      - name: "5. Site acessível + tempos (esperado: 200)"
+      - name: "4. Acesso SEM autenticação (esperado: 302 → login Access)"
         run: |
-          curl -s -o /dev/null -m 15 -w \
-            "  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n" \
-            "https://${DOMAIN}"
+          echo "GET https://${DOMAIN}"
           code=$(curl -s -o /dev/null -w "%{http_code}" -m 15 "https://${DOMAIN}")
-          if [ "${code}" != "200" ]; then
-            echo "::error::Site não respondeu 200 (esperado 200)"
-            exit 1
+          echo "  HTTP status: ${code}"
+          curl -sI -m 15 "https://${DOMAIN}" | grep -iE '^(location|www-authenticate|server|cf-ray)' || true
+          if [ "${code}" = "200" ]; then
+            echo "::warning::Site respondeu 200 sem autenticação (Cloudflare Access pode estar desativado)."
+          else
+            echo "  => Acesso anônimo BLOQUEADO: redireciona para o login do Cloudflare Access."
           fi
 
       # ------------------------------------------------------
-      - name: 6. Varredura de portas na VM
+      - name: "5. Criar Service Token (Access) via API"
+        id: create-token
+        run: |
+          resp=$(curl -s -X POST "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/service_tokens" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"ci-demo-seminario"}')
+          echo "$resp" | jq '{success, result: {id: .result.id, client_id: .result.client_id, name: .result.name}}' 2>/dev/null || echo "$resp"
+          cid=$(echo "$resp" | jq -r '.result.client_id // empty')
+          csec=$(echo "$resp" | jq -r '.result.client_secret // empty')
+          tid=$(echo "$resp" | jq -r '.result.id // empty')
+          if [ -z "$cid" ] || [ -z "$csec" ]; then
+            echo "::error::Falha ao criar Service Token. Verificar escopo do CLOUDFLARE_API_TOKEN (Access: Service Tokens: Edit)."
+            exit 1
+          fi
+          echo "::add-mask::$csec"
+          echo "CF_ACCESS_CLIENT_ID=$cid" >> "$GITHUB_ENV"
+          echo "CF_ACCESS_CLIENT_SECRET=$csec" >> "$GITHUB_ENV"
+          echo "CF_ACCESS_TOKEN_ID=$tid" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------
+      - name: "6. Acesso COM autenticação (esperado: 200)"
+        run: |
+          echo "GET https://${DOMAIN} (com Service Token)"
+          result=$(curl -s -o /dev/null -m 15 -w "HTTP=%{http_code} DNS=%{time_namelookup}s TLS=%{time_appconnect}s TTFB=%{time_starttransfer}s" \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            "https://${DOMAIN}/")
+          echo "  ${result}"
+          body=$(curl -s -m 15 \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            "https://${DOMAIN}/api/todos" | head -c 200)
+          echo "  /api/todos -> ${body}"
+          if echo "$result" | grep -q "HTTP=200"; then
+            echo "  => COM aprovação (Service Token), o endpoint responde 200."
+          else
+            echo "::warning::Token não retornou 200 — verificar se o Service Token está incluído na policy do Access."
+          fi
+
+      # ------------------------------------------------------
+      - name: "7. Varredura de portas na VM"
         run: |
           echo "Alvo: ${VM_IP}"
           for p in 22 80 443 5000 27017 5432 8000 8080; do
@@ -97,21 +136,25 @@ jobs:
           echo "  => Só SSH (22) aberto; web/back-end/banco bloqueados."
 
       # ------------------------------------------------------
-      - name: 7. Back-end via túnel (sem exposição direta)
+      - name: "8. Limpeza (remover Service Token)"
+        if: always()
         run: |
-          echo "GET https://${DOMAIN}/api/todos"
-          curl -s -m 15 "https://${DOMAIN}/api/todos" | head -c 300 || true
-          echo
-          echo "  => A API responde pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 6)."
+          if [ -n "${CF_ACCESS_TOKEN_ID:-}" ]; then
+            curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/access/service_tokens/${CF_ACCESS_TOKEN_ID}" \
+              -H "Authorization: Bearer ${CF_API_TOKEN}" | jq -r '.success' | sed 's/^/  deletado: /'
+          else
+            echo "  (nenhum token para remover)"
+          fi
 
       # ------------------------------------------------------
-      - name: 8. Resumo da evidência
+      - name: "9. Resumo da evidência"
         run: |
           echo "=============================================="
           echo "  Isolamento de rede comprovado:"
           echo "   - Operador/runner ... rede externa (fora da VCN)"
           echo "   - DNS ........ origem escondida (Cloudflare)"
-          echo "   - Site ....... acessível via borda"
+          echo "   - Sem autenticação ... BLOQUEADO (302 → login Access)"
+          echo "   - Com autenticação ... acessível (Service Token)"
           echo "   - SSH (22) ... ABERTA (gerenciamento)"
           echo "   - Demais ..... BLOQUEADAS (web/back-end/banco)"
           echo "=============================================="

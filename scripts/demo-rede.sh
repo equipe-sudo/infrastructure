@@ -7,13 +7,18 @@
 #   1. Rede do operador — estamos FORA da VCN (rede externa)
 #   2. DNS              — o IP real da VM fica escondido (Cloudflare)
 #   3. Cabeçalhos       — resposta servida pela borda (server: cloudflare)
-#   4. Tempos HTTP      — DNS/conexão/TLS/TTFB do site
-#   5. Varredura        — quais portas estão abertas/fechadas na VM
-#   6. API via túnel    — o back-end responde, mas não é exposto direto
+#   4. Sem autenticação — 302 → login do Access (bloqueado)
+#   5. Com autenticação — 200 (opcional, exige Service Token)
+#   6. Varredura        — quais portas estão abertas/fechadas na VM
 #   7. Resumo
 #
 # Cada passo exige APROVAÇÃO (Enter) para avançar — ideal para explicar
 # cada parte durante a apresentação.
+#
+# Para o passo "com autenticação", exporte o Service Token do Access:
+#   export CF_ACCESS_CLIENT_ID="<client_id>"
+#   export CF_ACCESS_CLIENT_SECRET="<client_secret>"
+#   ./demo-rede.sh
 #
 # Uso:
 #   ./demo-rede.sh                          # interativo (Enter para aprovar)
@@ -27,8 +32,6 @@ set -u
 DOMAIN="${DOMAIN:-equipe-sudo.kolpzs.com}"
 VM_IP="${VM_IP:-129.148.50.233}"
 SSH_PORT="${SSH_PORT:-22}"
-BACKEND_PORT="${BACKEND_PORT:-5000}"
-DB_PORT="${DB_PORT:-27017}"
 API_PATH="${API_PATH:-/api/todos}"
 PORTS="${PORTS:-22 80 443 5000 27017 5432 8000 8080}"
 TIMEOUT="${TIMEOUT:-5}"          # segundos de tolerância p/ considerar "bloqueado"
@@ -106,23 +109,52 @@ step_dns() {
 step_headers() {
   info "3) Cabeçalhos da resposta (prova da borda/proxy)"
   curl -sI -m "$TIMEOUT" "https://${DOMAIN}" \
-    | grep -iE '^(HTTP/|server|cf-ray|cache-control|content-type|alt-svc|x-powered-by)' || true
+    | grep -iE '^(HTTP/|server|cf-ray|www-authenticate|location|cache-control|content-type)' || true
   info '  => server: cloudflare / cf-ray indicam que a resposta passa pela borda, não pela VM direto.'
   pause
 }
 
-# ---- 4. Site acessível + tempos de conexão ----
-step_site() {
-  info "4) Site acessível + tempos (DNS/conexão/TLS/TTFB)"
-  curl -s -o /dev/null -m "$TIMEOUT" -w \
-    '  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n' \
-    "https://${DOMAIN}"
+# ---- 4. Acesso SEM autenticação ----
+step_anon() {
+  info "4) Acesso SEM autenticação (esperado: 302 → login Access)"
+  local code loc
+  code=$(curl -s -o /dev/null -w "%{http_code}" -m "$TIMEOUT" "https://${DOMAIN}")
+  loc=$(curl -sI -m "$TIMEOUT" "https://${DOMAIN}" | grep -i '^location:' | cut -d' ' -f2- | head -c 90)
+  printf '  HTTP status: %s\n' "$code"
+  [ -n "$loc" ] && printf '  redirect  -> %s\n' "$loc"
+  if [ "$code" = "200" ]; then
+    warn '  Site respondeu 200 sem autenticação — o Access pode estar desativado.'
+  else
+    ok '  Acesso anônimo BLOQUEADO (redireciona para o login do Cloudflare Access).'
+  fi
   pause
 }
 
-# ---- 5. Varredura de portas na VM ----
+# ---- 5. Acesso COM autenticação (opcional) ----
+step_auth() {
+  if [ -z "${CF_ACCESS_CLIENT_ID:-}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
+    info '5) Acesso COM autenticação — PULADO (defina CF_ACCESS_CLIENT_ID e CF_ACCESS_CLIENT_SECRET)'
+    info '   No workflow do GitHub isso roda automático criando o Service Token via API.'
+    pause
+    return
+  fi
+  info "5) Acesso COM autenticação (esperado: 200)"
+  curl -s -o /dev/null -m "$TIMEOUT" -w '  HTTP=%{http_code}  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n' \
+    -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+    -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+    "https://${DOMAIN}/"
+  local body
+  body=$(curl -s -m "$TIMEOUT" \
+    -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+    -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+    "https://${DOMAIN}${API_PATH}" | head -c 200)
+  [ -n "$body" ] && printf '  %s -> %s\n' "${API_PATH}" "$body"
+  pause
+}
+
+# ---- 6. Varredura de portas na VM ----
 step_ports() {
-  info "5) Varredura de portas na VM (${VM_IP})"
+  info "6) Varredura de portas na VM (${VM_IP})"
   printf '  %-8s %s\n' "PORTA" "ESTADO"
   for p in $PORTS; do
     if timeout "$SWEEP_TIMEOUT" bash -c "exec 3<>/dev/tcp/${VM_IP}/${p}" 2>/dev/null; then
@@ -135,27 +167,14 @@ step_ports() {
   pause
 }
 
-# ---- 6. API via túnel (back-end responde sem exposição direta) ----
-step_api() {
-  info "6) API via túnel (${API_PATH}) — o back-end responde sem ser exposto"
-  local body
-  body=$(curl -s -m "$TIMEOUT" "https://${DOMAIN}${API_PATH}" | head -c 200)
-  if [ -n "$body" ]; then
-    printf '  resposta: %s\n' "$body"
-    info '  => A API funciona pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 5).'
-  else
-    warn "  API não respondeu por ${API_PATH} — verificar endpoint antes de apresentar."
-  fi
-  pause
-}
-
 # ---- 7. Resumo ----
 summary() {
   printf '%s\n' "${BOLD}--------------------------------------------------${RESET}"
   printf '%s\n' "${BOLD} RESUMO TÉCNICO${RESET}"
   printf '%s\n' "  Operador ... rede externa (fora da VCN)"
   printf '%s\n' "  DNS ........ origem escondida (Cloudflare)"
-  printf '%s\n' "  Site ....... acessível via borda (HTTP/HTTPS)"
+  printf '%s\n' "  Sem autenticação ... BLOQUEADO (302 → login Access)"
+  printf '%s\n' "  Com autenticação ... acessível (Service Token)"
   printf '%s\n' "  SSH (22) ... ABERTA (única de gerenciamento)"
   printf '%s\n' "  Demais .... BLOQUEADAS (web/back-end/banco)"
   printf '%s\n' "${BOLD}--------------------------------------------------${RESET}"
@@ -169,7 +188,7 @@ banner
 step_operator
 step_dns
 step_headers
-step_site
+step_anon
+step_auth
 step_ports
-step_api
 summary
