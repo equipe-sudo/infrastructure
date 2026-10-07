@@ -5,12 +5,13 @@ name: Demo — Isolamento de rede (evidência)
 # Disparo: manual (botão "Run workflow") — roda apenas quando pedido.
 #
 # Cada passo exibe dados técnicos:
-#   1. DNS          — IP real da VM escondido atrás do Cloudflare
-#   2. Cabeçalhos   — resposta servida pela borda (server/cf-ray)
-#   3. TLS          — certificado/emissor/validade do domínio
-#   4. Tempos HTTP  — DNS/conexão/TLS/TTFB
-#   5. Varredura    — estado de cada porta na VM (aberta/bloqueada)
-#   6. API via túnel — back-end responde sem exposição direta
+#   1. Rede do runner — origem FORA da VCN (prova que o teste vem de fora)
+#   2. DNS           — IP real da VM escondido atrás do Cloudflare
+#   3. Cabeçalhos    — resposta servida pela borda (server/cf-ray)
+#   4. TLS           — certificado/emissor/validade do domínio
+#   5. Tempos HTTP   — DNS/conexão/TLS/TTFB
+#   6. Varredura     — estado de cada porta na VM (aberta/bloqueada)
+#   7. API via túnel — back-end responde sem exposição direta
 #
 # Serve como plano B da apresentação: o log desta execução é a
 # prova reproduzível, caso a demo ao vivo falhe.
@@ -32,7 +33,22 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------
-      - name: 1. Resolução DNS (origem escondida)
+      - name: 1. Rede do runner (origem FORA da VCN)
+        run: |
+          echo "Hostname: $(hostname)"
+          echo "IPs locais do runner:"
+          ip -4 -o addr show scope global | awk '{print "  "$4" ("$2")"}' || hostname -I
+          echo "IP público do runner:"
+          pub=$(curl -s -m 8 https://api.ipify.org || true)
+          echo "  ${pub:-<indisponível>}"
+          echo "Detalhes (ISP/localização):"
+          curl -s -m 8 https://ipinfo.io | tr ',' '\n' | grep -E '"(ip|city|region|country|org)"' | sed 's/^/  /' || true
+          echo
+          echo "  => O runner está numa rede EXTERNA (GitHub), NÃO dentro da VCN da OCI."
+          echo "  => Os testes abaixo partem 'de fora', como um visitante da internet."
+
+      # ------------------------------------------------------
+      - name: 2. Resolução DNS (origem escondida)
         run: |
           echo "Domínio: ${DOMAIN}"
           if command -v dig >/dev/null 2>&1; then
@@ -44,19 +60,19 @@ jobs:
           echo "  => O IP real da VM NÃO aparece no DNS: a origem fica escondida atrás do Cloudflare."
 
       # ------------------------------------------------------
-      - name: 2. Cabeçalhos HTTP (borda/proxy)
+      - name: 3. Cabeçalhos HTTP (borda/proxy)
         run: |
           curl -sI -m 15 "https://${DOMAIN}" \
             | grep -iE '^(HTTP/|server|cf-ray|cache-control|content-type|alt-svc|x-powered-by)' || true
 
       # ------------------------------------------------------
-      - name: 3. Certificado TLS
+      - name: 4. Certificado TLS
         run: |
           echo | openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" 2>/dev/null \
             | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "  (não foi possível ler o certificado)"
 
       # ------------------------------------------------------
-      - name: 4. Site acessível + tempos (esperado: 200)
+      - name: 5. Site acessível + tempos (esperado: 200)
         run: |
           curl -s -o /dev/null -m 15 -w \
             "  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n" \
@@ -68,7 +84,7 @@ jobs:
           fi
 
       # ------------------------------------------------------
-      - name: 5. Varredura de portas na VM
+      - name: 6. Varredura de portas na VM
         run: |
           echo "Alvo: ${VM_IP}"
           for p in 22 80 443 5000 27017 5432 8000 8080; do
@@ -81,18 +97,19 @@ jobs:
           echo "  => Só SSH (22) aberto; web/back-end/banco bloqueados."
 
       # ------------------------------------------------------
-      - name: 6. Back-end via túnel (sem exposição direta)
+      - name: 7. Back-end via túnel (sem exposição direta)
         run: |
           echo "GET https://${DOMAIN}/api/todos"
           curl -s -m 15 "https://${DOMAIN}/api/todos" | head -c 300 || true
           echo
-          echo "  => A API responde pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 5)."
+          echo "  => A API responde pelo túnel, mesmo com a porta 5000 bloqueada direto (passo 6)."
 
       # ------------------------------------------------------
-      - name: 7. Resumo da evidência
+      - name: 8. Resumo da evidência
         run: |
           echo "=============================================="
           echo "  Isolamento de rede comprovado:"
+          echo "   - Operador/runner ... rede externa (fora da VCN)"
           echo "   - DNS ........ origem escondida (Cloudflare)"
           echo "   - Site ....... acessível via borda"
           echo "   - SSH (22) ... ABERTA (gerenciamento)"

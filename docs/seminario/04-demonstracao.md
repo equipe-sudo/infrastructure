@@ -100,16 +100,20 @@ Abra o terminal (com `./scripts/demo-rede.sh` já digitado) e, na outra aba, o c
 
 ### Rodando o script (o que falar em cada passo)
 
-Rode `./scripts/demo-rede.sh` e narre cada passo, apertando `Enter` para avançar:
+Rode `./scripts/demo-rede.sh` e narre cada passo, apertando `Enter` para **aprovar** e avançar:
 
 | Passo do script | O que aparece | O que falar |
 |---|---|---|
-| 1. DNS | IP do domínio ≠ IP da VM | "O IP real da VM não aparece no DNS — a origem fica escondida atrás do Cloudflare." |
-| 2. Cabeçalhos | `server: cloudflare`, `cf-ray` | "A resposta vem pela borda (edge), não da VM direto." |
-| 3. Tempos HTTP | DNS/conexão/TLS/TTFB | "Mede o caminho real da requisição até a borda." |
-| 4. Varredura | 22 aberta, resto bloqueado | "Só SSH está aberto. Web, back-end e banco — tudo bloqueado." |
-| 5. API | dados de `/api/todos` | "O back-end responde pelo túnel, mesmo com a porta 5000 fechada direto." |
-| 6. Resumo | tabela final | "Tudo bloqueado, exceto o necessário." |
+| 1. Rede do operador | hostname, IP local, IP público, ISP/cidade | "Esta máquina está numa rede externa (casa/faculdade), **fora** da VCN. Todos os testes partem da internet." |
+| 2. DNS | IP do domínio ≠ IP da VM | "O IP real da VM não aparece no DNS — a origem fica escondida atrás do Cloudflare." |
+| 3. Cabeçalhos | `server: cloudflare`, `cf-ray` | "A resposta vem pela borda (edge), não da VM direto." |
+| 4. Tempos HTTP | DNS/conexão/TLS/TTFB | "Mede o caminho real da requisição até a borda." |
+| 5. Varredura | 22 aberta, resto bloqueado | "Só SSH está aberto. Web, back-end e banco — tudo bloqueado." |
+| 6. API | dados de `/api/todos` | "O back-end responde pelo túnel, mesmo com a porta 5000 fechada direto." |
+| 7. Resumo | tabela final | "Tudo bloqueado, exceto o necessário." |
+
+> **Aprovação por passo:** o script para a cada passo e espera `Enter` — é o seu momento de
+> explicar. É intencional e recomendado: você controla o ritmo e ninguém "corre" o conteúdo.
 
 ### Depois do script — o porquê (console OCI, 40s)
 
