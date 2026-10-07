@@ -72,7 +72,7 @@ jobs:
             | openssl x509 -noout -subject -issuer -dates 2>/dev/null || echo "  (não foi possível ler o certificado)"
 
       # ------------------------------------------------------
-      - name: 5. Site acessível + tempos (esperado: 200)
+      - name: "5. Site acessível + tempos (esperado: 200)"
         run: |
           curl -s -o /dev/null -m 15 -w \
             "  HTTP=%{http_code}  DNS=%{time_namelookup}s  Conexão=%{time_connect}s  TLS=%{time_appconnect}s  TTFB=%{time_starttransfer}s\n" \
