@@ -6,6 +6,13 @@ terraform/*.tfstate.local.bak
 terraform/tfplan*
 terraform/terraform.tfvars
 
+# Terraform do Kubernetes (Minikube/ArgoCD)
+kubernetes/.terraform/
+kubernetes/*.tfstate
+kubernetes/*.tfstate.*
+kubernetes/tfplan*
+kubernetes/terraform.tfvars
+
 # Binários e documentos Office
 *.docx
 *.pdf
