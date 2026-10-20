@@ -1,0 +1,14 @@
+# ============================================================
+# ConfigMap — configuração não sensível do backend (FastAPI)
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cybervegas-config
+data:
+  ENVIRONMENT: "minikube"
+  # Saldo inicial do jogador padrão (R$ 100,00).
+  SALDO_INICIAL: "100"
+  # No cluster o banco é o PostgreSQL dedicado: desliga o fallback
+  # para SQLite (que só faz sentido em dev local sem o Postgres).
+  ALLOW_SQLITE_FALLBACK: "false"

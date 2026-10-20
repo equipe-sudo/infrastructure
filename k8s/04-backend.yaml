@@ -1,0 +1,87 @@
+# ============================================================
+# Backend (FastAPI) — Deployment + Service
+# ============================================================
+# - 2 réplicas: componente escalado para demonstrar balanceamento
+#   de carga e tolerância à perda de um Pod.
+# - initContainer espera o PostgreSQL aceitar conexões (pg_isready),
+#   garantindo que o backend nunca suba antes do banco (e nunca
+#   dispare o fallback para SQLite).
+# - readinessProbe usa /health/ready, que só responde 200 quando o
+#   banco está acessível. O Pod só recebe tráfego quando pronto.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -p 5432; do echo 'aguardando postgres...'; sleep 2; done
+      containers:
+        - name: backend
+          image: cybervegas-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: cybervegas-secrets
+                  key: DATABASE_URL
+            - name: SALDO_INICIAL
+              valueFrom:
+                configMapKeyRef:
+                  name: cybervegas-config
+                  key: SALDO_INICIAL
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: cybervegas-config
+                  key: ENVIRONMENT
+            - name: ALLOW_SQLITE_FALLBACK
+              valueFrom:
+                configMapKeyRef:
+                  name: cybervegas-config
+                  key: ALLOW_SQLITE_FALLBACK
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000

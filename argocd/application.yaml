@@ -1,0 +1,31 @@
+# ============================================================
+# ArgoCD Application — GitOps do CyberVegas
+# ============================================================
+# Aponta para o diretório k8s/ deste repositório. O ArgoCD observa
+# o Git e mantém o cluster sincronizado com os manifestos
+# (selfHeal: corrige desvios; prune: remove recursos apagados do Git).
+#
+# O acesso ao repositório privado é feito via Secret de credencial
+# registrado no ArgoCD (ver kubernetes/README.md, seção ArgoCD).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cybervegas
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/equipe-sudo/infrastructure
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
