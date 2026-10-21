@@ -18,6 +18,13 @@ resource "helm_release" "argocd" {
     name  = "server.service.type"
     value = "NodePort"
   }
+
+  # Acesso local por HTTP puro (sem TLS), para abrir a UI no Minikube sem
+  # aviso de certificado. Em produção, remover e manter HTTPS.
+  set {
+    name  = "configs.params.server.insecure"
+    value = "true"
+  }
 }
 
 resource "kubectl_manifest" "argocd_repo_secret" {
