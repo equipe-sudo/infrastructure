@@ -62,6 +62,11 @@ spec:
             # stdout, para o `kubectl logs` refletir as requisições em tempo real.
             - name: PYTHONUNBUFFERED
               value: "1"
+            # OpenTelemetry — exporta métricas/traces para o Collector (OTLP HTTP)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "cybervegas-backend"
           livenessProbe:
             httpGet:
               path: /health
