@@ -1,7 +1,7 @@
 {
   "title": "CyberVegas — Aplicação",
   "uid": "cybervegas-app",
-  "description": "Golden signals, jornada HTTP, dependências e capacidade do backend.",
+  "description": "Somente sinais confirmados do backend OpenTelemetry e do estado Kubernetes.",
   "tags": [
     "cybervegas",
     "tipo-especifico",
@@ -9,7 +9,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "15s",
   "time": {
     "from": "now-30m",
@@ -19,7 +19,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "SLO de disponibilidade",
+      "title": "API disponível (/health)",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -42,7 +42,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 1,
+          "noValue": "Sem dados no período",
+          "decimals": 2,
           "unit": "percent"
         }
       }
@@ -50,7 +51,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "SLO de dependência (PostgreSQL)",
+      "title": "Banco pronto (/health/ready)",
       "gridPos": {
         "x": 6,
         "y": 0,
@@ -73,7 +74,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 1,
+          "noValue": "Sem dados no período",
+          "decimals": 2,
           "unit": "percent"
         }
       }
@@ -81,7 +83,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Erro do usuário / servidor",
+      "title": "Erro HTTP",
       "gridPos": {
         "x": 12,
         "y": 0,
@@ -104,6 +106,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "Sem dados no período",
           "decimals": 2,
           "unit": "percent"
         }
@@ -112,7 +115,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Ritmo de uso",
+      "title": "Exportação OTel / Prometheus",
       "gridPos": {
         "x": 18,
         "y": 0,
@@ -126,7 +129,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m])) or vector(0)",
+          "expr": "min(up{job=\"otel-collector\"}) * 100",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -135,15 +138,16 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 3,
-          "unit": "reqps"
+          "noValue": "Sem dados no período",
+          "decimals": 2,
+          "unit": "percent"
         }
       }
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Jornada HTTP: volume por rota",
+      "title": "Requests por rota — probes e negócio",
       "gridPos": {
         "x": 0,
         "y": 5,
@@ -167,7 +171,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 3,
+          "noValue": "Sem requisições no período",
+          "decimals": 2,
           "unit": "reqps"
         }
       }
@@ -175,7 +180,7 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Jornada HTTP: tempo de resposta",
+      "title": "Latência HTTP p50 / p95",
       "gridPos": {
         "x": 12,
         "y": 5,
@@ -208,6 +213,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "Sem amostras no período",
           "decimals": 2,
           "unit": "ms"
         }
@@ -216,12 +222,12 @@
     {
       "id": 7,
       "type": "table",
-      "title": "Matriz de endpoints: rota × status",
+      "title": "Distribuição de respostas HTTP",
       "gridPos": {
         "x": 0,
         "y": 13,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -240,7 +246,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 3,
+          "noValue": "Sem respostas no período",
+          "decimals": 2,
           "unit": "reqps"
         }
       }
@@ -248,12 +255,12 @@
     {
       "id": 8,
       "type": "table",
-      "title": "Dependências e réplicas",
+      "title": "Workloads da aplicação",
       "gridPos": {
         "x": 12,
         "y": 13,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -262,15 +269,6 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "kube_deployment_status_replicas_available{namespace=\"default\"}",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "legendFormat": "{{deployment}} disponíveis"
-        },
-        {
-          "refId": "B",
           "expr": "kube_deployment_spec_replicas{namespace=\"default\"}",
           "datasource": {
             "type": "prometheus",
@@ -279,30 +277,41 @@
           "legendFormat": "{{deployment}} desejadas"
         },
         {
-          "refId": "C",
-          "expr": "kube_pod_status_ready{namespace=\"default\",condition=\"true\",pod=~\"postgres-.*\"}",
+          "refId": "B",
+          "expr": "kube_deployment_status_replicas_available{namespace=\"default\"}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "legendFormat": "postgres ready"
+          "legendFormat": "{{deployment}} disponíveis"
+        },
+        {
+          "refId": "C",
+          "expr": "kube_deployment_status_replicas_unavailable{namespace=\"default\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{deployment}} indisponíveis"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 2
+          "noValue": "Sem workloads",
+          "decimals": 2,
+          "unit": "short"
         }
       }
     },
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Capacidade usada pelos Pods do backend",
+      "title": "Restarts dos Pods da aplicação",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 20,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -311,38 +320,31 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(pod)(rate(container_cpu_usage_seconds_total{namespace=\"default\",pod=~\"backend-.*\",container!=\"POD\",container!=\"\"}[5m]))",
+          "expr": "sum by(pod)(increase(kube_pod_container_status_restarts_total{namespace=\"default\",container!=\"\"}[30m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "legendFormat": "CPU {{pod}}"
-        },
-        {
-          "refId": "B",
-          "expr": "sum by(pod)(container_memory_working_set_bytes{namespace=\"default\",pod=~\"backend-.*\",container!=\"POD\",container!=\"\"})/1024/1024",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "legendFormat": "Memória MB {{pod}}"
+          "legendFormat": "{{pod}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 2
+          "noValue": "Nenhum restart no período",
+          "decimals": 2,
+          "unit": "short"
         }
       }
     },
     {
       "id": 10,
-      "type": "timeseries",
-      "title": "Eventos de erro ao longo do tempo",
+      "type": "table",
+      "title": "Targets da observabilidade",
       "gridPos": {
         "x": 12,
-        "y": 21,
+        "y": 20,
         "w": 12,
-        "h": 8
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -351,27 +353,19 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"4..\"}[5m])) or vector(0)",
+          "expr": "up{job=~\"otel-collector|node-exporter|kube-state-metrics\"}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "legendFormat": "4xx"
-        },
-        {
-          "refId": "B",
-          "expr": "sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"5..\"}[5m])) or vector(0)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "legendFormat": "5xx"
+          "legendFormat": "{{job}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "decimals": 3,
-          "unit": "reqps"
+          "noValue": "Sem targets",
+          "decimals": 2,
+          "unit": "short"
         }
       }
     }
