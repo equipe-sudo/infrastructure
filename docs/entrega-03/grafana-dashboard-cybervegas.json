@@ -1,89 +1,207 @@
 {
-  "title": "CyberVegas — Observabilidade (EXTRA)",
-  "uid": "cybervegas-obs",
-  "tags": ["cybervegas", "opentelemetry", "extra"],
+  "title": "CyberVegas — Aplicação",
+  "uid": "cybervegas-app",
+  "tags": [
+    "cybervegas",
+    "application",
+    "observability"
+  ],
   "timezone": "browser",
   "refresh": "10s",
   "schemaVersion": 39,
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
-      "type": "timeseries",
-      "title": "Requisições por segundo (por rota)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "type": "stat",
+      "title": "Disponibilidade da API (health)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_target) (rate(http_server_duration_milliseconds_count[5m]))",
-          "legendFormat": "{{http_target}}"
+          "expr": "100 * avg_over_time((http_server_duration_milliseconds_count{http_target=\"/health\",http_status_code=\"200\"} > 0)[15m:])",
+          "legendFormat": "health 200"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      }
     },
     {
       "id": 2,
-      "type": "timeseries",
-      "title": "Latência p95 (por rota)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "type": "stat",
+      "title": "Readiness com banco",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, http_target) (rate(http_server_duration_milliseconds_bucket[5m])))",
-          "legendFormat": "{{http_target}}"
+          "expr": "100 * avg_over_time((http_server_duration_milliseconds_count{http_target=\"/health/ready\",http_status_code=\"200\"} > 0)[15m:])",
+          "legendFormat": "ready 200"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      }
     },
     {
       "id": 3,
-      "type": "timeseries",
-      "title": "Requisições ativas",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "targets": [
-        { "refId": "A", "expr": "http_server_active_requests", "legendFormat": "ativas" }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "timeseries",
-      "title": "Respostas 4xx/5xx",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "type": "stat",
+      "title": "Taxa de erro 4xx/5xx",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_status_code) (rate(http_server_duration_milliseconds_count{http_status_code=~\"4..|5..\"}[5m]))",
-          "legendFormat": "{{http_status_code}}"
+          "expr": "100 * sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"4..|5..\"}[5m])) / clamp_min(sum(rate(http_server_duration_milliseconds_count[5m])),0.001)",
+          "legendFormat": "erros"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Tráfego (req/s)",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m]))",
+          "legendFormat": "API"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "CPU do nó (%)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "title": "Requisições por rota",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": "CPU"
+          "expr": "sum by (http_target) (rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m]))",
+          "legendFormat": "{{http_target}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Memória do nó (usada %)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "title": "Latência p50 e p95 por rota",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
-          "legendFormat": "Memória"
+          "expr": "histogram_quantile(0.50, sum by (le,http_target) (rate(http_server_duration_milliseconds_bucket{http_target!~\"/health.*\"}[5m])))",
+          "legendFormat": "p50 {{http_target}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le,http_target) (rate(http_server_duration_milliseconds_bucket{http_target!~\"/health.*\"}[5m])))",
+          "legendFormat": "p95 {{http_target}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Respostas por código HTTP",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (http_status_code) (rate(http_server_duration_milliseconds_count[5m]))",
+          "legendFormat": "{{http_status_code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Disponibilidade e restarts do backend",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_deployment_status_replicas_available{deployment=\"backend\"}",
+          "legendFormat": "réplicas disponíveis"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{pod=~\"backend-.*\",container!=\"\"}[15m]))",
+          "legendFormat": "restarts (15m)"
+        }
+      ]
     }
   ]
 }
