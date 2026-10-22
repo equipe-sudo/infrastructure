@@ -130,8 +130,9 @@
 
 7. **Recriação automática de Pod:** *(requisito)*
    ```bash
-   kubectl delete pod -l app=backend
-   kubectl get pods -o wide   # novo Pod criado automaticamente
+   kubectl get pods -l app=backend          # escolher UM pod
+   kubectl delete pod <nome-de-um-pod>      # apagar só ele (não -l app=backend, que apaga os dois)
+   kubectl get pods -o wide                 # novo Pod criado automaticamente
    ```
 
 8. **ArgoCD (opcional, 10 s):**

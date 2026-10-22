@@ -58,6 +58,10 @@ spec:
                 configMapKeyRef:
                   name: cybervegas-config
                   key: ALLOW_SQLITE_FALLBACK
+            # Logs sem buffer: o uvicorn escreve cada linha imediatamente no
+            # stdout, para o `kubectl logs` refletir as requisições em tempo real.
+            - name: PYTHONUNBUFFERED
+              value: "1"
           livenessProbe:
             httpGet:
               path: /health

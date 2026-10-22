@@ -129,11 +129,13 @@ kubectl get pvc
 # Balanceamento de carga (2 réplicas do backend):
 kubectl get endpoints backend            # mostra os 2 IPs dos Pods
 # gerando tráfego:
-for i in $(seq 1 20); do curl -s http://$(minikube service frontend --url)/api/saldo >/dev/null; done
-kubectl logs -l app=backend --prefix --tail 20   # as linhas alternam entre os 2 Pods
+URL=$(minikube service frontend --url)
+for i in $(seq 1 20); do curl -s "$URL/api/saldo" > /dev/null; done
+kubectl logs -l app=backend --prefix --tail 100 | grep saldo
 
-# Recriação automática de um Pod:
-kubectl delete pod -l app=backend
+# Recriação automática de UM Pod (substitua pelo nome real):
+kubectl get pods -l app=backend
+kubectl delete pod <nome-de-um-pod>
 kubectl get pods -o wide                 # o Deployment recria imediatamente
 ```
 
