@@ -18,7 +18,7 @@ data:
     exporters:
       prometheus:
         endpoint: 0.0.0.0:8889
-      logging:
+      debug:
         verbosity: basic
     service:
       pipelines:
@@ -27,7 +27,7 @@ data:
           exporters: [prometheus]
         traces:
           receivers: [otlp]
-          exporters: [logging]
+          exporters: [debug]
 ---
 apiVersion: apps/v1
 kind: Deployment
