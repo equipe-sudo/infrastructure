@@ -1,3 +1,21 @@
+# Provider necessário para o Grafana descobrir os dashboards provisionados.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        options:
+          path: /var/lib/grafana/dashboards
+---
 # Provisioned Grafana dashboard
 apiVersion: v1
 kind: ConfigMap
