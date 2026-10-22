@@ -46,8 +46,12 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboard-provider
               mountPath: /etc/grafana/provisioning/dashboards
-            - name: dashboard-cybervegas
-              mountPath: /var/lib/grafana/dashboards
+            - name: dashboard-app
+              mountPath: /var/lib/grafana/dashboards/cybervegas-app.json
+              subPath: cybervegas.json
+            - name: dashboard-cluster
+              mountPath: /var/lib/grafana/dashboards/cybervegas-cluster.json
+              subPath: cybervegas-cluster.json
       volumes:
         - name: datasource
           configMap:
@@ -55,9 +59,12 @@ spec:
         - name: dashboard-provider
           configMap:
             name: grafana-dashboard-provider
-        - name: dashboard-cybervegas
+        - name: dashboard-app
           configMap:
             name: grafana-dashboard-cybervegas
+        - name: dashboard-cluster
+          configMap:
+            name: grafana-dashboard-cluster
 ---
 apiVersion: v1
 kind: Service

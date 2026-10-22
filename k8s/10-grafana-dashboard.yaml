@@ -25,8 +25,8 @@ metadata:
 data:
   cybervegas.json: |
     {
-      "title": "CyberVegas — Observabilidade (EXTRA)",
-      "uid": "cybervegas-obs",
+      "title": "CyberVegas — Aplicação (EXTRA)",
+      "uid": "cybervegas-app",
       "tags": ["cybervegas", "opentelemetry", "extra"],
       "timezone": "browser",
       "refresh": "10s",
