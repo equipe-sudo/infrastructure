@@ -1,38 +1,49 @@
 {
   "title": "CyberVegas — Aplicação",
   "uid": "cybervegas-app",
+  "description": "Saúde e desempenho da API CyberVegas. As rotas health são probes do Kubernetes; tráfego de negócio aparece quando a aplicação é utilizada.",
   "tags": [
     "cybervegas",
-    "application",
-    "observability"
+    "tipo-especifico",
+    "categoria-observability"
   ],
   "timezone": "browser",
-  "refresh": "10s",
   "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
   "time": {
-    "from": "now-1h",
+    "from": "now-30m",
     "to": "now"
   },
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Disponibilidade da API (health)",
+      "title": "Disponibilidade /health",
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 0,
-        "y": 0
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * avg_over_time((http_server_duration_milliseconds_count{http_target=\"/health\",http_status_code=\"200\"} > 0)[15m:])",
-          "legendFormat": "health 200"
+          "expr": "100 * (sum(rate(http_server_duration_milliseconds_count{http_target=\"/health\",http_status_code=\"200\"}[5m]))) / clamp_min((sum(rate(http_server_duration_milliseconds_count{http_target=\"/health\"}[5m]))),0.000001)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "sucesso"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 1,
           "unit": "percent"
         }
       }
@@ -40,22 +51,31 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Readiness com banco",
+      "title": "Readiness /health/ready",
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 6,
-        "y": 0
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * avg_over_time((http_server_duration_milliseconds_count{http_target=\"/health/ready\",http_status_code=\"200\"} > 0)[15m:])",
-          "legendFormat": "ready 200"
+          "expr": "100 * (sum(rate(http_server_duration_milliseconds_count{http_target=\"/health/ready\",http_status_code=\"200\"}[5m]))) / clamp_min((sum(rate(http_server_duration_milliseconds_count{http_target=\"/health/ready\"}[5m]))),0.000001)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "banco conectado"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 1,
           "unit": "percent"
         }
       }
@@ -63,22 +83,31 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Taxa de erro 4xx/5xx",
+      "title": "Erro HTTP",
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 12,
-        "y": 0
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"4..|5..\"}[5m])) / clamp_min(sum(rate(http_server_duration_milliseconds_count[5m])),0.001)",
-          "legendFormat": "erros"
+          "expr": "(100 * sum(rate(http_server_duration_milliseconds_count{http_status_code=~\"4..|5..\"}[5m])) / clamp_min(sum(rate(http_server_duration_milliseconds_count[5m])),0.000001)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "4xx + 5xx"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 2,
           "unit": "percent"
         }
       }
@@ -86,22 +115,31 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Tráfego (req/s)",
+      "title": "Tráfego de negócio",
       "gridPos": {
-        "h": 6,
-        "w": 6,
         "x": 18,
-        "y": 0
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m]))",
-          "legendFormat": "API"
+          "expr": "sum(rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m])) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "req/s"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 3,
           "unit": "reqps"
         }
       }
@@ -109,22 +147,31 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Requisições por rota",
+      "title": "Requests por rota (inclui probes)",
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 0,
-        "y": 6
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_target) (rate(http_server_duration_milliseconds_count{http_target!~\"/health.*\"}[5m]))",
+          "expr": "sum by(http_target)(rate(http_server_duration_milliseconds_count[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "legendFormat": "{{http_target}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 3,
           "unit": "reqps"
         }
       }
@@ -132,27 +179,40 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Latência p50 e p95 por rota",
+      "title": "Latência p50 / p95 por rota",
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 12,
-        "y": 6
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le,http_target) (rate(http_server_duration_milliseconds_bucket{http_target!~\"/health.*\"}[5m])))",
+          "expr": "histogram_quantile(0.50,sum by(le,http_target)(rate(http_server_duration_milliseconds_bucket[5m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "legendFormat": "p50 {{http_target}}"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le,http_target) (rate(http_server_duration_milliseconds_bucket{http_target!~\"/health.*\"}[5m])))",
+          "expr": "histogram_quantile(0.95,sum by(le,http_target)(rate(http_server_duration_milliseconds_bucket[5m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "legendFormat": "p95 {{http_target}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 2,
           "unit": "ms"
         }
       }
@@ -162,20 +222,29 @@
       "type": "timeseries",
       "title": "Respostas por código HTTP",
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 0,
-        "y": 14
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (http_status_code) (rate(http_server_duration_milliseconds_count[5m]))",
+          "expr": "sum by(http_status_code)(rate(http_server_duration_milliseconds_count[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "legendFormat": "{{http_status_code}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "decimals": 3,
           "unit": "reqps"
         }
       }
@@ -183,25 +252,89 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Disponibilidade e restarts do backend",
+      "title": "Réplicas e restarts do backend",
       "gridPos": {
-        "h": 8,
-        "w": 12,
         "x": 12,
-        "y": 14
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "kube_deployment_status_replicas_available{deployment=\"backend\"}",
+          "expr": "kube_deployment_status_replicas_available{namespace=\"default\",deployment=\"backend\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "legendFormat": "réplicas disponíveis"
         },
         {
           "refId": "B",
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{pod=~\"backend-.*\",container!=\"\"}[15m]))",
-          "legendFormat": "restarts (15m)"
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"default\",pod=~\"backend-.*\",container!=\"\"}[15m])) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "restarts 15m"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Deployments da aplicação",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kube_deployment_status_replicas_available{namespace=\"default\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{deployment}} disponíveis"
+        },
+        {
+          "refId": "B",
+          "expr": "kube_deployment_spec_replicas{namespace=\"default\"}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "legendFormat": "{{deployment}} desejadas"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      }
     }
-  ]
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": []
 }
