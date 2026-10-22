@@ -176,6 +176,19 @@ kubectl port-forward svc/prometheus 9090:9090    # Prometheus (consulta)
 - `k8s/10-grafana-dashboard.yaml` (app) · `11-kube-state-metrics.yaml` · `12-grafana-dashboard-cluster.yaml`
 - `backend/instrumentation.py` (SDK OpenTelemetry)
 
+## 9.1 Critérios de confiabilidade dos dashboards
+
+Os dashboards foram reduzidos para exibir somente sinais disponíveis e validados no Prometheus.
+
+- A disponibilidade é calculada como **respostas 200 divididas pelo total de respostas**, não pelo valor acumulado do contador.
+- `health` e `health/ready` são probes do Kubernetes e ficam separados do tráfego de negócio.
+- Quando não existe tráfego no intervalo, o painel informa isso explicitamente em vez de apresentar um valor artificial.
+- O dashboard de aplicação não apresenta CPU/memória por Pod, pois o pipeline atual não coleta métricas cAdvisor por container.
+- Traces chegam ao Collector, mas ainda não são exploráveis no Grafana porque o cluster não possui Tempo/Jaeger.
+- O PostgreSQL é validado por readiness; métricas internas do banco exigiriam `postgres-exporter` ou instrumentação adicional.
+
+A observabilidade continua sendo um **extra da Entrega 03 apenas na documentação**; os dashboards no Grafana aparecem como `CyberVegas — Aplicação` e `CyberVegas — Cluster`.
+
 ## 9. Considerações
 
 - As imagens são construídas **dentro do Minikube** (sem registry externo). Para a
