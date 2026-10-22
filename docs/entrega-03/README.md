@@ -135,24 +135,33 @@ As saídas e capturas reais estão em [`evidencias.md`](evidencias.md) e
 ```
 backend (OTel SDK) ──OTLP/HTTP :4318──► otel-collector ──/metrics :8889──► prometheus ──► grafana
 node-exporter (DaemonSet) ────────────────────────────► prometheus
+kube-state-metrics ───────────────────────────────────► prometheus
 ```
 
 - **Backend instrumentado com OpenTelemetry** — auto-instrumentação do FastAPI
-  (`instrumentation.py`) gera **métricas** (duração/contagem de requisições por
-  rota e status) e **traces**, exportados por OTLP/HTTP. A instrumentação é
-  desativada quando `OTEL_EXPORTER_OTLP_ENDPOINT` não existe (a app sobe sem depender dela).
+  (`instrumentation.py`) gera **métricas** e **traces** via OTLP/HTTP.
 - **OpenTelemetry Collector** — recebe OTLP e expõe as métricas no formato Prometheus.
-- **Prometheus** — coleta as métricas do Collector (aplicação) e do **node-exporter** (nó).
-- **Grafana** — visualização, com datasource Prometheus já provisionado.
-- **node-exporter** — DaemonSet que expõe CPU/memória/disco/rede do nó.
+- **Prometheus** — coleta as métricas do Collector (aplicação), do **node-exporter** (nó)
+  e do **kube-state-metrics** (estado do cluster).
+- **Grafana** — visualização, com datasource Prometheus e **dois dashboards** provisionados.
+- **node-exporter** — métricas de CPU/memória/disco/rede do nó.
+- **kube-state-metrics** — estado dos objetos (pods, deployments, restarts, fases).
+
+### Dashboards (provisionados)
+
+| Dashboard | UID | Baseado em |
+|---|---|---|
+| **CyberVegas — Aplicação** | `cybervegas-app` | painéis de latência/erros/uso (modelo do dashboard do to-do da Equipe SUDO) |
+| **CyberVegas — Cluster** | `cybervegas-cluster` | template `[TEMPLATE] - Kubernetes Cluster Health` do hub-grafana |
 
 ### O que cada sinal valida
 
 | Sinal | Origem | Métricas |
 |---|---|---|
 | Aplicação | Backend → Collector → Prometheus | `http_server_duration_milliseconds`, `http_server_active_requests`, `http_server_response_size_bytes` |
-| Nó (cluster) | node-exporter | `node_cpu_seconds_total`, `node_memory_*`, `node_disk_*`, `node_network_*` |
-| Traces | Backend → Collector | spans por requisição HTTP (exibidos no log do Collector) |
+| Nó (cluster) | node-exporter | `node_cpu_seconds_total`, `node_memory_*`, `node_disk_*` |
+| Estado do cluster | kube-state-metrics | `kube_pod_status_phase`, `kube_pod_container_status_restarts_total`, `kube_deployment_status_replicas_unavailable` |
+| Traces | Backend → Collector | spans por requisição HTTP |
 
 ### Acesso
 
@@ -164,6 +173,7 @@ kubectl port-forward svc/prometheus 9090:9090    # Prometheus (consulta)
 ### Arquivos
 
 - `k8s/06-otel-collector.yaml` · `07-prometheus.yaml` · `08-grafana.yaml` · `09-node-exporter.yaml`
+- `k8s/10-grafana-dashboard.yaml` (app) · `11-kube-state-metrics.yaml` · `12-grafana-dashboard-cluster.yaml`
 - `backend/instrumentation.py` (SDK OpenTelemetry)
 
 ## 9. Considerações
