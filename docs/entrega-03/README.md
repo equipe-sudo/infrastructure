@@ -114,16 +114,59 @@ A `Application` aponta para `equipe-sudo/infrastructure` (diretório `k8s/`), co
 
 ## 7. Demonstrações validadas
 
-- ✅ Aplicação **funcional** — `GET /api/saldo` retorna `{"saldo":100.0}` (dado real do PostgreSQL).
+- ✅ Aplicação **funcional** — `GET /api/saldo` retorna o saldo real do usuário (PostgreSQL).
 - ✅ **2 réplicas** do backend e do frontend, com balanceamento de carga entre os Pods.
 - ✅ **Recriação automática** de Pod após exclusão (`kubectl delete pod`).
 - ✅ **ConfigMap + Secret + PVC** em uso.
 - ✅ **ArgoCD** sincronizado e saudável (GitOps).
+- ✅ **Observabilidade** (extra, seção 8) — métricas da aplicação e do nó + traces via OpenTelemetry.
 
 As saídas e capturas reais estão em [`evidencias.md`](evidencias.md) e
-[`app-executando.png`](app-executando.png).
+[`app-logada.png`](app-logada.png).
 
-## 8. Considerações
+## 8. EXTRA — Observabilidade do cluster e da aplicação
+
+> **Extra** — vai além dos requisitos da Entrega 03. Instalamos uma stack de
+> observabilidade **dentro do próprio cluster Minikube** para validar o
+> **Kubernetes** (métricas do nó) e a **aplicação** (métricas e traces do backend).
+
+### Fluxo dos dados
+
+```
+backend (OTel SDK) ──OTLP/HTTP :4318──► otel-collector ──/metrics :8889──► prometheus ──► grafana
+node-exporter (DaemonSet) ────────────────────────────► prometheus
+```
+
+- **Backend instrumentado com OpenTelemetry** — auto-instrumentação do FastAPI
+  (`instrumentation.py`) gera **métricas** (duração/contagem de requisições por
+  rota e status) e **traces**, exportados por OTLP/HTTP. A instrumentação é
+  desativada quando `OTEL_EXPORTER_OTLP_ENDPOINT` não existe (a app sobe sem depender dela).
+- **OpenTelemetry Collector** — recebe OTLP e expõe as métricas no formato Prometheus.
+- **Prometheus** — coleta as métricas do Collector (aplicação) e do **node-exporter** (nó).
+- **Grafana** — visualização, com datasource Prometheus já provisionado.
+- **node-exporter** — DaemonSet que expõe CPU/memória/disco/rede do nó.
+
+### O que cada sinal valida
+
+| Sinal | Origem | Métricas |
+|---|---|---|
+| Aplicação | Backend → Collector → Prometheus | `http_server_duration_milliseconds`, `http_server_active_requests`, `http_server_response_size_bytes` |
+| Nó (cluster) | node-exporter | `node_cpu_seconds_total`, `node_memory_*`, `node_disk_*`, `node_network_*` |
+| Traces | Backend → Collector | spans por requisição HTTP (exibidos no log do Collector) |
+
+### Acesso
+
+```bash
+kubectl port-forward svc/grafana 3000:3000       # Grafana (admin/admin)
+kubectl port-forward svc/prometheus 9090:9090    # Prometheus (consulta)
+```
+
+### Arquivos
+
+- `k8s/06-otel-collector.yaml` · `07-prometheus.yaml` · `08-grafana.yaml` · `09-node-exporter.yaml`
+- `backend/instrumentation.py` (SDK OpenTelemetry)
+
+## 9. Considerações
 
 - As imagens são construídas **dentro do Minikube** (sem registry externo). Para a
   nuvem, basta publicar no GHCR/OCIR e trocar a tag nos manifestos.

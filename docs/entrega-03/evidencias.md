@@ -76,6 +76,15 @@ NAME         SYNC STATUS   HEALTH STATUS
 cybervegas   Synced        Healthy
 ```
 
+## 9. EXTRA — Observabilidade (Prometheus + Grafana + OpenTelemetry)
+
+![Observabilidade](prints/print-07-observabilidade.png)
+
+Targets do Prometheus `up` (`node-exporter` e `otel-collector`) e as métricas da
+aplicação (`http_server_duration_milliseconds`, `http_server_active_requests`…)
+chegando via OpenTelemetry (backend → Collector → Prometheus). O backend foi
+instrumentado com o SDK OpenTelemetry (auto-instrumentação do FastAPI).
+
 ---
 
 ## Comandos usados (resumo)
