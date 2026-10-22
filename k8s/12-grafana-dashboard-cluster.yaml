@@ -7,7 +7,7 @@ data:
     {
       "title": "CyberVegas — Cluster",
       "uid": "cybervegas-cluster",
-      "description": "Saúde operacional do cluster Kubernetes e dos workloads da aplicação.",
+      "description": "Command center para saúde dos Pods, workloads e capacidade do nó.",
       "tags": [
         "cybervegas",
         "tipo-especifico",
@@ -15,7 +15,7 @@ data:
       ],
       "timezone": "browser",
       "schemaVersion": 39,
-      "version": 1,
+      "version": 2,
       "refresh": "15s",
       "time": {
         "from": "now-30m",
@@ -24,13 +24,13 @@ data:
       "panels": [
         {
           "id": 1,
-          "type": "stat",
-          "title": "Pods problemáticos",
+          "type": "gauge",
+          "title": "Saúde dos Pods",
           "gridPos": {
             "x": 0,
             "y": 0,
             "w": 6,
-            "h": 5
+            "h": 6
           },
           "datasource": {
             "type": "prometheus",
@@ -39,30 +39,29 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(kube_pod_status_phase{namespace=\"default\",phase=~\"Pending|Failed|Unknown\"}) or vector(0)",
+              "expr": "100 * sum(kube_pod_status_phase{phase=\"Running\"}) / clamp_min(count(kube_pod_info),1)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
-              },
-              "legendFormat": "pods"
+              }
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "decimals": 0,
-              "unit": "short"
+              "decimals": 1,
+              "unit": "percent"
             }
           }
         },
         {
           "id": 2,
-          "type": "stat",
-          "title": "Waiting crítica",
+          "type": "gauge",
+          "title": "Disponibilidade dos workloads",
           "gridPos": {
             "x": 6,
             "y": 0,
             "w": 6,
-            "h": 5
+            "h": 6
           },
           "datasource": {
             "type": "prometheus",
@@ -71,30 +70,29 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "count(sum by(namespace,pod)(kube_pod_container_status_waiting_reason{namespace=\"default\",reason=~\"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|CreateContainerError\"}) == 1) or vector(0)",
+              "expr": "100 * sum(kube_deployment_status_replicas_available) / clamp_min(sum(kube_deployment_spec_replicas),1)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
-              },
-              "legendFormat": "pods"
+              }
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "decimals": 0,
-              "unit": "short"
+              "decimals": 1,
+              "unit": "percent"
             }
           }
         },
         {
           "id": 3,
           "type": "stat",
-          "title": "Deployments indisponíveis",
+          "title": "Restarts recentes",
           "gridPos": {
             "x": 12,
             "y": 0,
             "w": 6,
-            "h": 5
+            "h": 6
           },
           "datasource": {
             "type": "prometheus",
@@ -103,12 +101,11 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "count(sum by(namespace,deployment)(kube_deployment_status_replicas_unavailable{namespace=\"default\"}) > 0) or vector(0)",
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{container!=\"\"}[30m])) or vector(0)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
-              },
-              "legendFormat": "deployments"
+              }
             }
           ],
           "fieldConfig": {
@@ -121,12 +118,12 @@ data:
         {
           "id": 4,
           "type": "stat",
-          "title": "Restarts — aplicação",
+          "title": "Pods em estado crítico",
           "gridPos": {
             "x": 18,
             "y": 0,
             "w": 6,
-            "h": 5
+            "h": 6
           },
           "datasource": {
             "type": "prometheus",
@@ -135,12 +132,11 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"default\",container!=\"\"}[$__range])) or vector(0)",
+              "expr": "sum(kube_pod_status_phase{phase=~\"Pending|Failed|Unknown\"}) + count(kube_pod_container_status_waiting_reason{reason=~\"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|CreateContainerError\"} == 1) or vector(0)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
-              },
-              "legendFormat": "restarts"
+              }
             }
           ],
           "fieldConfig": {
@@ -153,10 +149,10 @@ data:
         {
           "id": 5,
           "type": "timeseries",
-          "title": "Pods por fase — aplicação",
+          "title": "Lifecycle dos Pods por namespace",
           "gridPos": {
             "x": 0,
-            "y": 5,
+            "y": 6,
             "w": 12,
             "h": 8
           },
@@ -167,28 +163,27 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(kube_pod_status_phase{namespace=\"default\"}) by(phase)",
+              "expr": "sum by(namespace,phase)(kube_pod_status_phase)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "legendFormat": "{{phase}}"
+              "legendFormat": "{{namespace}} / {{phase}}"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "decimals": 0,
-              "unit": "short"
+              "decimals": 2
             }
           }
         },
         {
           "id": 6,
           "type": "timeseries",
-          "title": "Top Pods por restart — aplicação",
+          "title": "Restarts por Pod",
           "gridPos": {
             "x": 12,
-            "y": 5,
+            "y": 6,
             "w": 12,
             "h": 8
           },
@@ -199,12 +194,12 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "topk(8,sum(increase(kube_pod_container_status_restarts_total{namespace=\"default\",container!=\"\"}[$__range])) by(pod))",
+              "expr": "topk(10,sum(increase(kube_pod_container_status_restarts_total{container!=\"\"}[30m])) by(namespace,pod))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "legendFormat": "{{pod}}"
+              "legendFormat": "{{namespace}} / {{pod}}"
             }
           ],
           "fieldConfig": {
@@ -216,11 +211,11 @@ data:
         },
         {
           "id": 7,
-          "type": "timeseries",
-          "title": "CPU e memória do nó Minikube",
+          "type": "table",
+          "title": "Workloads: desejado × disponível",
           "gridPos": {
             "x": 0,
-            "y": 13,
+            "y": 14,
             "w": 12,
             "h": 8
           },
@@ -231,7 +226,88 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100",
+              "expr": "kube_deployment_spec_replicas",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{namespace}} / {{deployment}} desejadas"
+            },
+            {
+              "refId": "B",
+              "expr": "kube_deployment_status_replicas_available",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{namespace}} / {{deployment}} disponíveis"
+            },
+            {
+              "refId": "C",
+              "expr": "kube_deployment_status_replicas_unavailable",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{namespace}} / {{deployment}} indisponíveis"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 0,
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Pods críticos e motivo",
+          "gridPos": {
+            "x": 12,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "kube_pod_container_status_waiting_reason{reason!=\"\"} == 1",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "{{namespace}}/{{pod}} {{reason}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 2
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Pressão de CPU e memória do nó",
+          "gridPos": {
+            "x": 0,
+            "y": 22,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))*100",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -240,12 +316,12 @@ data:
             },
             {
               "refId": "B",
-              "expr": "100 * (1-node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes)",
+              "expr": "100*(1-node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "legendFormat": "memória"
+              "legendFormat": "Memória"
             }
           ],
           "fieldConfig": {
@@ -256,12 +332,12 @@ data:
           }
         },
         {
-          "id": 8,
+          "id": 10,
           "type": "timeseries",
           "title": "Pods por namespace",
           "gridPos": {
             "x": 12,
-            "y": 13,
+            "y": 22,
             "w": 12,
             "h": 8
           },
@@ -284,46 +360,6 @@ data:
             "defaults": {
               "decimals": 0,
               "unit": "short"
-            }
-          }
-        },
-        {
-          "id": 9,
-          "type": "table",
-          "title": "Deployments — disponível vs desejado",
-          "gridPos": {
-            "x": 0,
-            "y": 21,
-            "w": 24,
-            "h": 6
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "kube_deployment_status_replicas_available{namespace=\"default\"}",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "legendFormat": "{{deployment}} disponíveis"
-            },
-            {
-              "refId": "B",
-              "expr": "kube_deployment_spec_replicas{namespace=\"default\"}",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "legendFormat": "{{deployment}} desejadas"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "decimals": 0
             }
           }
         }
