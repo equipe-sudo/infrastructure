@@ -2,132 +2,79 @@
 
 **Entrega 03** · Equipe SUDO · Ambiente: Minikube local (driver Docker)
 
-Aqui está a prova de que a aplicação CyberVegas (FastAPI + Angular + PostgreSQL)
-roda integralmente dentro do cluster, com 2 réplicas, balanceamento de carga,
-recriação automática de Pod e gerenciamento GitOps via ArgoCD.
+Capturas reais do cluster e da aplicação em execução, tiradas no mesmo momento
+(nomes e IPs dos Pods consistentes entre as seções).
 
 ---
 
-## 1. Pods em execução (`kubectl get pods -o wide`)
+## 1. Pods em execução — `kubectl get pods -o wide`
 
-Todos os componentes rodando dentro do cluster. Note as **2 réplicas** do
-`backend` e do `frontend` (endereços IP distintos) e o `postgres` com PVC.
+![Pods](prints/print-01-pods.png)
 
-```
-NAME                        READY   STATUS    RESTARTS       AGE     IP            NODE       NOMINATED NODE   READINESS GATES
-backend-59b7bb54cc-6vplg    1/1     Running   0              58s     10.244.0.16   minikube   <none>           <none>
-backend-59b7bb54cc-v6np2    1/1     Running   1 (6m5s ago)   6m19s   10.244.0.6    minikube   <none>           <none>
-frontend-76b5955f44-jg6d4   1/1     Running   0              6m19s   10.244.0.3    minikube   <none>           <none>
-frontend-76b5955f44-r9b5h   1/1     Running   0              6m19s   10.244.0.4    minikube   <none>           <none>
-postgres-767dd77bbb-hrz7g   1/1     Running   0              6m19s   10.244.0.7    minikube   <none>           <none>
-```
+5 Pods rodando: **2 réplicas** do `backend`, **2 do `frontend`** e 1 `postgres`.
 
-## 2. Services (`kubectl get services`)
+## 2. Services — `kubectl get services`
 
-```
-NAME         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
-backend      ClusterIP   10.106.26.195    <none>        8000/TCP       6m19s
-frontend     NodePort    10.103.152.188   <none>        80:32206/TCP   6m19s
-kubernetes   ClusterIP   10.96.0.1        <none>        443/TCP        11m
-postgres     ClusterIP   10.96.94.60      <none>        5432/TCP       6m19s
-```
+![Services](prints/print-02-services.png)
 
-- `backend` e `postgres` são **ClusterIP** (só acessíveis dentro do cluster).
-- `frontend` é **NodePort** (32206) — exposto para acesso pelo navegador.
+- `frontend` → **NodePort** (`80:32206`), exposto ao navegador.
+- `backend` e `postgres` → **ClusterIP** (acessíveis só dentro do cluster).
 
-## 3. Deployments (`kubectl get deployments`)
+## 3. Deployments — `kubectl get deployments`
 
-```
-NAME       READY   UP-TO-DATE   AVAILABLE   AGE
-backend    2/2     2            2           6m19s
-frontend   2/2     2            2           6m19s
-postgres   1/1     1            1           6m19s
-```
+![Deployments](prints/print-03-deployments.png)
 
-## 4. Persistência (`kubectl get pvc`)
+`backend` 2/2, `frontend` 2/2, `postgres` 1/1.
 
-```
-NAME            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
-postgres-data   Bound    pvc-a8fd8755-af47-419f-8b7b-7c9cbc6defa7   1Gi        RWO            standard       6m19s
-```
+## 4. Persistência + ConfigMap/Secret
 
-O PostgreSQL grava em um PersistentVolumeClaim, ou seja, os dados sobrevivem à
-recriação do Pod.
+![PVC, ConfigMap e Secret](prints/print-04-pvc-configmap-secret.png)
 
-## 5. ConfigMap e Secret
+- `postgres-data` (**PVC** de 1 Gi) — os dados sobrevivem à recriação do Pod.
+- `cybervegas-config` (**ConfigMap**) e `cybervegas-secrets` (**Secret**).
 
-```
-$ kubectl get configmap cybervegas-config
-$ kubectl get secret cybervegas-secrets
-```
+## 5. Aplicação em execução (logada)
 
-O `ConfigMap` guarda `SALDO_INICIAL`, `ENVIRONMENT` e `ALLOW_SQLITE_FALLBACK=false`;
-o `Secret` guarda as credenciais do PostgreSQL e a `DATABASE_URL`.
+Acessada pelo **NodePort do Minikube** (`http://192.168.49.2:32206`), logada com o
+usuário padrão — a barra de endereço mostra o IP do nó e o NodePort:
 
-## 6. Aplicação funcionando (requisições reais)
-
-Acessada pelo proxy do nginx (frontend → backend → PostgreSQL):
+![App logada](app-logada.png)
 
 ```
 GET /api/           → {"status":"online","mensagem":"Cyber Vegas API está no ar 🎰","versao":"1.1.0"}
-GET /api/saldo      → {"saldo":100.0,"mensagem":"Saldo consultado com sucesso."}
-GET /api/version    → {"api":"Cyber Vegas API","versao":"1.1.0"}
+GET /api/saldo      → {"saldo":56000.0,"mensagem":"Saldo consultado com sucesso."}
 GET /health         → {"status":"ok"}
 GET /health/ready   → {"status":"ready","database":"connected"}
 ```
 
 O `database:"connected"` prova que o backend está no **PostgreSQL** (não no
-fallback SQLite). A captura de tela da interface Angular está em
-[`app-executando.png`](app-executando.png).
+fallback SQLite).
 
-## 7. Balanceamento de carga entre os 2 Pods do backend
+## 6. Balanceamento de carga entre os 2 Pods
 
-```
-$ kubectl get endpoints backend
-NAME      ENDPOINTS                         AGE
-backend   10.244.0.5:8000,10.244.0.6:8000   4m49s
-```
+![Balanceamento](prints/print-05-lb.png)
 
-30 requisições a `http://backend:8000/saldo` disparadas **de dentro do cluster**
-(contra o Service, para o kube-proxy balancear) — distribuição vista nos logs:
+O Service `backend` tem **2 endpoints** (`10.244.0.18:8000` e `10.244.0.19:8000`,
+que batem com os IPs dos Pods da seção 1). O trecho do log
+(`kubectl logs -l app=backend --prefix`) mostra as requisições `GET /saldo`
+chegando **aos dois Pods** (`backend-...-57kcf` e `backend-...-pkdzk`) — round-robin
+do kube-proxy.
 
-```
-28  backend-59b7bb54cc-4b677
-19  backend-59b7bb54cc-v6np2
-```
+## 7. Recriação automática de um Pod
 
-Os dois Pods atenderam tráfego (round-robin do Service).
+![Recriação](prints/print-06-recriacao.png)
 
-## 8. Recriação automática de um Pod
+Deletado **um** Pod por nome (`backend-5df449c57-57kcf`). O Deployment criou
+imediatamente um substituto (`backend-5df449c57-b6h6l`, IP novo `10.244.0.20`),
+reestabelecendo as 2 réplicas sem intervenção.
 
-```
-$ kubectl delete pod backend-59b7bb54cc-4b677 --grace-period=0 --force
-
-# imediatamente após — o Deployment cria um Pod substituto:
-backend-59b7bb54cc-6vplg   0/1   Running   0   2s    10.244.0.16
-
-# segundos depois — novo Pod pronto (IP novo, confirmando que é outro Pod):
-backend-59b7bb54cc-6vplg   1/1   Running   0   7s    10.244.0.16
-backend-59b7bb54cc-v6np2   1/1   Running   1   5m28s 10.244.0.6
-```
-
-O **Deployment** reestabeleceu o estado desejado (2 réplicas) sem intervenção.
-
-## 9. ArgoCD — GitOps
+## 8. ArgoCD — GitOps
 
 ```
 $ kubectl -n argocd get application cybervegas
 NAME         SYNC STATUS   HEALTH STATUS
 cybervegas   Synced        Healthy
 ```
-
-A `Application` aponta para `equipe-sudo/infrastructure` (diretório `k8s/`).
-O ArgoCD clonou o repositório (privado, via Service Token) e confirmou que o
-cluster bate com o estado declarado no Git — `Synced` e `Healthy`.
-
-Pods do ArgoCD (todos no namespace `argocd`): `application-controller`,
-`applicationset-controller`, `dex-server`, `notifications-controller`, `redis`,
-`repo-server` e `server`.
 
 ---
 
@@ -144,5 +91,8 @@ kubectl get pods -o wide
 kubectl get services
 kubectl get deployments
 kubectl get endpoints backend
-kubectl delete pod -l app=backend
+kubectl delete pod <nome-de-um-pod>   # apaga UM pod (não -l app=backend)
 ```
+
+> O endereço `192.168.49.2` é o IP do nó do Minikube e `32206` é o NodePort do
+> Service `frontend` — prova de que a aplicação é acessada pelo Kubernetes.
