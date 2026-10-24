@@ -103,7 +103,7 @@ minikube service frontend --url
 
 # Testar a API pelo proxy do frontend:
 curl http://192.168.49.2:30XXX/api/          # -> {"status":"online",...}
-curl http://192.168.49.2:30XXX/api/saldo     # -> {"saldo":100.0,...}
+curl http://192.168.49.2:30XXX/api/saldo     # -> {"saldo":<saldo do jogador>,...}
 curl http://192.168.49.2:30XXX/api/pagamentos
 ```
 
@@ -121,7 +121,8 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 kubectl -n argocd get application cybervegas
 ```
 
-A `Application` aponta para `https://github.com/equipe-sudo/infrastructure` (diretório
+A `Application` aponta para o repositório definido em `argocd_repo_url` (padrão:
+`https://github.com/equipe-sudo/infrastructure`), diretório
 `k8s/`). Com `selfHeal` e `prune`, qualquer mudança nos manifestos do Git é aplicada
 automaticamente, e qualquer desvio no cluster é corrigido.
 
