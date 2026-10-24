@@ -38,23 +38,30 @@ minikube status
 As imagens são construídas **dentro** do daemon do Minikube, para que os Pods as
 encontrem sem precisar de um registry externo.
 
-```bash
-# Repositório backend (FastAPI)
-cd <repo>/backend
-docker build -t cybervegas-backend:latest .
+Os três repositórios precisam estar clonados **lado a lado** (diretórios irmãos):
 
-# Repositório frontend (Angular)
-cd <repo>/frontend
-docker build -t cybervegas-frontend:latest .
-
-# OU, a partir da raiz deste repositório:
-eval "$(minikube docker-env)"
-docker build -t cybervegas-backend:latest  /caminho/para/backend
-docker build -t cybervegas-frontend:latest /caminho/para/frontend
+```text
+workspace/
+├── infrastructure/   # este repositório
+├── backend/          # FastAPI
+└── frontend/         # Angular
 ```
 
-> No `eval "$(minikube docker-env)"`, o `docker` passa a apontar para o daemon do
-> Minikube. Sem isso, a imagem vai para o Docker local e o cluster não a encontra.
+Rode a partir de `infrastructure/kubernetes/`:
+
+```bash
+minikube image build -t cybervegas-backend:latest  ../../backend
+minikube image build -t cybervegas-frontend:latest ../../frontend
+```
+
+Se os repositórios estiverem em outros caminhos, use o caminho absoluto:
+`minikube image build -t cybervegas-backend:latest /caminho/para/backend`.
+
+> Use `minikube image build` (e **não** `docker build`). Com o runtime **containerd**
+> do Minikube atual, `eval "$(minikube docker-env)"` + `docker build` falha no buildx
+> e a imagem não fica disponível para os Pods.
+>
+> Confirme com: `minikube image ls | grep cybervegas`
 
 ## 4. Aplicar com Terraform (recomendado, portável)
 
@@ -162,3 +169,59 @@ argocd/application.yaml # Application do ArgoCD (GitOps)
 kubernetes/             # Terraform que aplica tudo (portável)
   provider.tf  variables.tf  main.tf  argocd.tf  outputs.tf
 ```
+
+## 10. Reprodução em outra máquina (checklist)
+
+Ordem exata para quem clonar os repositórios:
+
+```bash
+# 1. Pré-requisitos: docker, minikube, kubectl, terraform >= 1.5
+minikube start --driver=docker --cpus=4 --memory=3072 --disk-size=20g
+
+# 2. Imagens DENTRO do minikube (antes do apply)
+minikube image build -t cybervegas-backend:latest  ../backend
+minikube image build -t cybervegas-frontend:latest ../frontend
+minikube image ls | grep cybervegas          # confirme as duas imagens
+
+# 3. Aplicar tudo
+cd kubernetes && terraform init && terraform apply
+
+# 4. Validar
+kubectl get pods -o wide
+kubectl port-forward svc/frontend 8080:80    # http://localhost:8080
+```
+
+### ArgoCD em outra máquina
+
+O ArgoCD aponta, por padrão, para o repositório privado da equipe. Sem acesso,
+escolha uma das opções:
+
+```bash
+# A) Apontar para o seu fork, autenticando com PAT
+terraform apply \
+  -var 'argocd_repo_url=https://github.com/<seu-usuario>/infrastructure' \
+  -var 'argocd_repo_username=<seu-usuario>' \
+  -var 'argocd_repo_token=<PAT com escopo repo>'
+
+# B) Não instalar o ArgoCD (a aplicação sobe igual, via Terraform)
+terraform apply -var 'enable_argocd=false'
+```
+
+Na opção B, o cluster fica sem ArgoCD e sem a `Application`; todo o restante
+(aplicação, observabilidade e dashboards) continua funcionando.
+
+### O que não está no repositório (e por quê)
+
+| Item | Motivo |
+|---|---|
+| Imagens `cybervegas-*` | Construídas localmente no Minikube (passo 2) |
+| `terraform.tfstate` | Estado local, ignorado pelo `.gitignore` |
+| Token do ArgoCD | Credencial pessoal, nunca versionada |
+| Credenciais reais | O `Secret` usa credenciais de demonstração |
+
+### Limitações conhecidas
+
+- Sem registry externo: as imagens precisam ser construídas no Minikube.
+- Não há Tempo/Jaeger: os traces chegam ao Collector, mas não são exploráveis.
+- Não há cAdvisor: os dashboards não mostram CPU/memória por Pod.
+- O PostgreSQL é validado por readiness; métricas internas exigiriam `postgres-exporter`.

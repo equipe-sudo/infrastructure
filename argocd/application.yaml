@@ -1,3 +1,6 @@
+# ATENÇÃO: este arquivo é um TEMPLATE do Terraform.
+# O placeholder ${repo_url} é substituído por kubernetes/argocd.tf
+# (variável argocd_repo_url). Não aplique este arquivo direto com kubectl.
 # ============================================================
 # ArgoCD Application — GitOps do CyberVegas
 # ============================================================
@@ -17,7 +20,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/equipe-sudo/infrastructure
+    repoURL: ${repo_url}
     targetRevision: main
     path: k8s
   destination:

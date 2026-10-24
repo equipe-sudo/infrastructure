@@ -8,6 +8,8 @@
 # 3. Cria a Application que sincroniza o diretório k8s/ do Git.
 
 resource "helm_release" "argocd" {
+  count = var.enable_argocd ? 1 : 0
+
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
   chart            = "argo-cd"
@@ -28,7 +30,7 @@ resource "helm_release" "argocd" {
 }
 
 resource "kubectl_manifest" "argocd_repo_secret" {
-  count = var.argocd_repo_token != "" ? 1 : 0
+  count = var.enable_argocd && var.argocd_repo_token != "" ? 1 : 0
 
   yaml_body = <<-YAML
     apiVersion: v1
@@ -40,8 +42,8 @@ resource "kubectl_manifest" "argocd_repo_secret" {
         argocd.argoproj.io/secret-type: repository
     stringData:
       type: git
-      url: https://github.com/equipe-sudo/infrastructure
-      username: kolpzs
+      url: ${var.argocd_repo_url}
+      username: ${var.argocd_repo_username}
       password: ${var.argocd_repo_token}
   YAML
 
@@ -49,6 +51,11 @@ resource "kubectl_manifest" "argocd_repo_secret" {
 }
 
 resource "kubectl_manifest" "argocd_application" {
-  yaml_body  = file("${path.module}/../argocd/application.yaml")
+  count = var.enable_argocd ? 1 : 0
+
+  yaml_body = templatefile("${path.module}/../argocd/application.yaml", {
+    repo_url = var.argocd_repo_url
+  })
+
   depends_on = [kubectl_manifest.argocd_repo_secret]
 }
