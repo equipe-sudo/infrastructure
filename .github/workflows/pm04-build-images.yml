@@ -1,0 +1,81 @@
+name: PM04 Build Images (Smart Construction)
+
+# ============================================================
+# Builda e publica as imagens Docker do app "Smart Construction"
+# no GitHub Container Registry (GHCR).
+#
+# Repositório da aplicação: LaercioMLB/smart-construction
+#   - web: Dockerfile na raiz
+#   - api: Dockerfile em backend/
+#
+# Destino:
+#   ghcr.io/equipe-sudo/smart-construction-web:<tag>
+#   ghcr.io/equipe-sudo/smart-construction-api:<tag>
+#
+# Observação: o checkout de outro repositório (LaercioMLB/smart-construction)
+# exige um token com acesso de leitura a ele. Se for privado/outro org,
+# configure um PAT (ex.: APP_REPO_TOKEN) e use em token abaixo.
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag da imagem (ex.: latest, v1.2.3)"
+        required: true
+        type: string
+        default: "latest"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout da aplicação (smart-construction)
+        uses: actions/checkout@v4
+        with:
+          repository: LaercioMLB/smart-construction
+          # token: ${{ secrets.APP_REPO_TOKEN }}  # descomente se precisar de PAT
+          path: smart-construction
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build & push web (Dockerfile raiz)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./smart-construction
+          file: ./smart-construction/Dockerfile
+          push: true
+          tags: ghcr.io/equipe-sudo/smart-construction-web:${{ github.event.inputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build & push api (Dockerfile em backend/)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./smart-construction/backend
+          file: ./smart-construction/backend/Dockerfile
+          push: true
+          tags: ghcr.io/equipe-sudo/smart-construction-api:${{ github.event.inputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Resumo
+        run: |
+          echo "✓ Imagens publicadas:"
+          echo "  - ghcr.io/equipe-sudo/smart-construction-web:${{ github.event.inputs.tag }}"
+          echo "  - ghcr.io/equipe-sudo/smart-construction-api:${{ github.event.inputs.tag }}"

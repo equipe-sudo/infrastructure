@@ -1,0 +1,32 @@
+# ============================================
+# Terraform — terraform.tfvars (EXEMPLO)
+# ============================================
+# Copie para terraform.tfvars e preencha os valores reais:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# ATENÇÃO: este arquivo contém SOMENTE placeholders. Nunca versione
+# credenciais reais — o terraform.tfvars está no .gitignore.
+
+# --- OCI Authentication ---
+oci_tenancy_ocid     = "CHANGE_ME"
+oci_user_ocid        = "CHANGE_ME"
+oci_fingerprint      = "CHANGE_ME"
+oci_private_key_path = "~/.oci/oci_api_key.pem"
+oci_region           = "sa-saopaulo-1"
+
+# --- Projeto / Ambiente ---
+environment   = "dev"
+instance_name = "smart-construction"
+
+# --- Compute (Always Free) ---
+# Shape fixo AMD (1 GB) ou ARM Flex (ajustar vm_ocpus/vm_memory_gb):
+vm_shape     = "VM.Standard.E2.1.Micro"
+vm_ocpus     = 2
+vm_memory_gb = 12
+
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# --- Rede (opcional; os padrões já evitam conflito com a infra 10.0.x) ---
+vcn_cidr        = "10.10.0.0/16"
+app_subnet_cidr = "10.10.1.0/24"
+db_subnet_cidr  = "10.10.2.0/24"
