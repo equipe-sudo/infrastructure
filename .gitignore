@@ -13,6 +13,13 @@ kubernetes/*.tfstate.*
 kubernetes/tfplan*
 kubernetes/terraform.tfvars
 
+# Terraform do PM-04 (faculdade)
+pm04/terraform/.terraform/
+pm04/terraform/*.tfstate
+pm04/terraform/*.tfstate.*
+pm04/terraform/tfplan*
+pm04/terraform/terraform.tfvars
+
 # Binários e documentos Office
 *.docx
 *.pdf

@@ -1,0 +1,102 @@
+name: PM04 Destroy (Smart Construction)
+
+# ============================================================
+# Destrói a infraestrutura do projeto PM-04 (Smart Construction).
+#
+# ⚠️ ALTO IMPACTO: remove as VMs (app + banco) e todos os
+# recursos provisionados pelo Terraform. Não há rollback — o
+# estado remoto (bucket equipe-sudo-tfstate) é atualizado.
+#
+# Use apenas quando houver certeza. Ação manual (workflow_dispatch).
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente a destruir"
+        required: true
+        type: choice
+        default: "dev"
+        options:
+          - dev
+          - homolog
+          - prod
+
+permissions:
+  contents: read
+
+jobs:
+  destroy:
+    name: Destroy Infra (Smart Construction)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ">=1.12"
+
+      - name: Configurar OCI CLI
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.oci
+          echo "[DEFAULT]" > ~/.oci/config
+          echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
+          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
+          echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
+          echo "region=${{ secrets.OCI_REGION }}" >> ~/.oci/config
+          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
+          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem ~/.oci/config
+          echo "✓ OCI CLI configurada (perfil DEFAULT)"
+
+      # Chave pública necessária para o terraform (compute.tf usa var.ssh_public_key_path)
+      - name: Configurar chave SSH pública
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pub
+          chmod 600 ~/.ssh/id_rsa.pub
+          echo "✓ Chave SSH pública configurada em ~/.ssh/id_rsa.pub"
+
+      # Aviso explícito de alto impacto no início do log
+      - name: ⚠️ Aviso de alto impacto
+        run: |
+          set -euo pipefail
+          echo "============================================================"
+          echo "  ⚠️  DESTROY — Smart Construction (environment=${{ github.event.inputs.environment }})"
+          echo "  Esta ação REMOVE as VMs (app + banco) e demais recursos."
+          echo "  Operação destrutiva e irreversível via Terraform."
+          echo "============================================================"
+
+      - name: Terraform Init
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config="bucket=equipe-sudo-tfstate" \
+            -backend-config="key=pm04/terraform.tfstate" \
+            -backend-config="namespace=grhkdi3glvat" \
+            -backend-config="region=sa-saopaulo-1" \
+            -input=false
+          echo "✓ Terraform init concluído (backend OCI)"
+
+      - name: Terraform Destroy
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          echo "== Destruindo infraestrutura (environment=${{ github.event.inputs.environment }}) =="
+          terraform destroy -auto-approve -input=false \
+            -var="environment=${{ github.event.inputs.environment }}" \
+            -var="oci_tenancy_ocid=${{ secrets.OCI_TENANCY_OCID }}" \
+            -var="oci_user_ocid=${{ secrets.OCI_USER_OCID }}" \
+            -var="oci_fingerprint=${{ secrets.OCI_FINGERPRINT }}" \
+            -var="oci_private_key_path=~/.oci/oci_api_key.pem" \
+            -var="oci_region=${{ secrets.OCI_REGION }}" \
+            -var="ssh_public_key_path=~/.ssh/id_rsa.pub"
+          echo "✓ Infraestrutura destruída"

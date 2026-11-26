@@ -1,0 +1,313 @@
+name: PM04 Deploy (Smart Construction)
+
+# ============================================================
+# Pipeline CI/CD do projeto PM-04 — "Smart Construction".
+#
+# Provisiona a infraestrutura (2 VMs OCI) com Terraform e
+# configura as VMs (app + banco) com Ansible.
+#
+#   Terraform: pm04/terraform/   (backend remoto OCI Object Storage)
+#   Ansible:   pm04/ansible/     (inventory gerado a partir dos outputs do TF)
+#
+# Fluxo:
+#   1. init + plan + apply do Terraform
+#   2. gera inventory do Ansible com os IPs reais (outputs do TF)
+#   3. configura SSH (bastion via VM app, ProxyJump p/ banco)
+#   4. roda o playbook Ansible
+#   5. smoke test HTTP/HTTPS na VM app
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente de deploy"
+        required: true
+        type: choice
+        default: "dev"
+        options:
+          - dev
+          - homolog
+          - prod
+      instance_name:
+        description: "Prefixo de nome das instâncias"
+        required: true
+        type: string
+        default: "smart-construction"
+      instance_type:
+        description: "Tipo/shape da VM (t3.micro = E2.1.Micro AMD; t3.small = A1.Flex ARM)"
+        required: true
+        type: choice
+        default: "VM.Standard.A1.Flex"
+        options:
+          - "VM.Standard.A1.Flex"
+          - "VM.Standard.E2.1.Micro"
+      docker_tag:
+        description: "Tag da imagem Docker a implantar"
+        required: true
+        type: string
+        default: "latest"
+      update_os:
+        description: "Atualizar o SO (dnf update) antes de instalar pacotes"
+        required: true
+        type: boolean
+        default: false
+      extra_packages:
+        description: "Pacotes extras a instalar (lista separada por vírgula)"
+        required: true
+        type: string
+        default: "curl,git,unzip"
+
+# Evita dois deploys simultâneos no mesmo ambiente
+concurrency:
+  group: pm04-deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Provision + Configure (Smart Construction)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # ----------------------------------------------------------
+      # 1. Checkout
+      # ----------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # 2. Setup Terraform
+      # ----------------------------------------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ">=1.12"
+
+      # ----------------------------------------------------------
+      # 2b. Resolver parâmetros (shape-dependent + boolean)
+      # ----------------------------------------------------------
+      - name: Resolver parâmetros
+        run: |
+          set -euo pipefail
+          # OCPUs/RAM dependem do shape escolhido (valores Always Free)
+          if [ "${{ github.event.inputs.instance_type }}" = "VM.Standard.A1.Flex" ]; then
+            VM_OCPUS="2"
+            VM_MEMORY_GB="12"
+          else
+            VM_OCPUS="1"
+            VM_MEMORY_GB="1"
+          fi
+
+          # Converte o boolean (input do GH chega como string "true"/"false")
+          if [ "${{ github.event.inputs.update_os }}" = "true" ]; then
+            UPDATE_OS="true"
+          else
+            UPDATE_OS="false"
+          fi
+
+          echo "VM_OCPUS=$VM_OCPUS" >> "$GITHUB_ENV"
+          echo "VM_MEMORY_GB=$VM_MEMORY_GB" >> "$GITHUB_ENV"
+          echo "UPDATE_OS=$UPDATE_OS" >> "$GITHUB_ENV"
+          echo "✓ Shape=${{ github.event.inputs.instance_type }} → OCPUs=${VM_OCPUS}, RAM=${VM_MEMORY_GB}GB, update_os=${UPDATE_OS}"
+
+      # ----------------------------------------------------------
+      # 3. Configurar OCI CLI (~/.oci/config + chave PEM)
+      #    Padrão copiado de terraform-ci.yml
+      # ----------------------------------------------------------
+      - name: Configurar OCI CLI
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.oci
+          echo "[DEFAULT]" > ~/.oci/config
+          echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
+          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
+          echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
+          echo "region=${{ secrets.OCI_REGION }}" >> ~/.oci/config
+          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
+          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem ~/.oci/config
+          echo "✓ OCI CLI configurada (perfil DEFAULT)"
+
+      # ----------------------------------------------------------
+      # 3b. Configurar chave SSH pública (injetada nas VMs via metadata)
+      #     O compute.tf usa var.ssh_public_key_path (default ~/.ssh/id_rsa.pub)
+      # ----------------------------------------------------------
+      - name: Configurar chave SSH pública
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/id_rsa.pub
+          chmod 600 ~/.ssh/id_rsa.pub
+          echo "✓ Chave SSH pública configurada em ~/.ssh/id_rsa.pub"
+
+      # ----------------------------------------------------------
+      # 4. Terraform Init (backend OCI Object Storage)
+      # ----------------------------------------------------------
+      - name: Terraform Init
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config="bucket=equipe-sudo-tfstate" \
+            -backend-config="key=pm04/terraform.tfstate" \
+            -backend-config="namespace=grhkdi3glvat" \
+            -backend-config="region=sa-saopaulo-1" \
+            -input=false
+          echo "✓ Terraform init concluído (backend OCI)"
+
+      # ----------------------------------------------------------
+      # 5. Terraform Plan
+      # ----------------------------------------------------------
+      - name: Terraform Plan
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          echo "== Gerando plano (environment=${{ github.event.inputs.environment }}) =="
+          terraform plan -out=tfplan -input=false -no-color \
+            -var="environment=${{ github.event.inputs.environment }}" \
+            -var="instance_name=${{ github.event.inputs.instance_name }}" \
+            -var="vm_shape=${{ github.event.inputs.instance_type }}" \
+            -var="vm_ocpus=${{ env.VM_OCPUS }}" \
+            -var="vm_memory_gb=${{ env.VM_MEMORY_GB }}" \
+            -var="oci_tenancy_ocid=${{ secrets.OCI_TENANCY_OCID }}" \
+            -var="oci_user_ocid=${{ secrets.OCI_USER_OCID }}" \
+            -var="oci_fingerprint=${{ secrets.OCI_FINGERPRINT }}" \
+            -var="oci_private_key_path=~/.oci/oci_api_key.pem" \
+            -var="oci_region=${{ secrets.OCI_REGION }}" \
+            -var="ssh_public_key_path=~/.ssh/id_rsa.pub"
+          echo "✓ Plano salvo em tfplan"
+
+      # ----------------------------------------------------------
+      # 6. Terraform Apply
+      # ----------------------------------------------------------
+      - name: Terraform Apply
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          echo "== Aplicando infraestrutura =="
+          terraform apply -input=false -auto-approve tfplan
+          echo "✓ Infraestrutura provisionada"
+
+      # ----------------------------------------------------------
+      # 7. Capturar outputs do Terraform e gerar inventory do Ansible
+      # ----------------------------------------------------------
+      - name: Gerar inventory do Ansible
+        id: inventory
+        working-directory: pm04/terraform
+        run: |
+          set -euo pipefail
+          APP_PUBLIC_IP=$(terraform output -raw app_vm_public_ip)
+          APP_PRIVATE_IP=$(terraform output -raw app_vm_private_ip)
+          DB_PRIVATE_IP=$(terraform output -raw db_vm_private_ip)
+          SSH_CMD=$(terraform output -raw ssh_command_app)
+
+          echo "app_vm_public_ip=$APP_PUBLIC_IP"
+          echo "app_vm_private_ip=$APP_PRIVATE_IP"
+          echo "db_vm_private_ip=$DB_PRIVATE_IP"
+          echo "ssh_command_app=$SSH_CMD"
+
+          # Expõe para os passos seguintes
+          echo "APP_PUBLIC_IP=$APP_PUBLIC_IP" >> "$GITHUB_ENV"
+          echo "APP_PRIVATE_IP=$APP_PRIVATE_IP" >> "$GITHUB_ENV"
+          echo "DB_PRIVATE_IP=$DB_PRIVATE_IP" >> "$GITHUB_ENV"
+
+          # Gera o inventory substituindo os placeholders
+          cat > ../ansible/inventory.yml << EOF
+          ---
+          # Gerado automaticamente pelo workflow pm04-deploy.yml.
+          # NÃO edite manualmente — os IPs vêm dos outputs do Terraform.
+          all:
+            children:
+              app:
+                hosts:
+                  app:
+                    ansible_host: ${APP_PUBLIC_IP}
+                    ansible_user: opc
+                    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+                    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+              db:
+                hosts:
+                  db:
+                    ansible_host: ${DB_PRIVATE_IP}
+                    ansible_user: opc
+                    ansible_ssh_private_key_file: ~/.ssh/id_rsa
+                    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -q opc@${APP_PUBLIC_IP}"'
+          EOF
+
+          echo "✓ Inventory gerado em pm04/ansible/inventory.yml"
+
+      # ----------------------------------------------------------
+      # 8. Setup SSH key privada (bastion)
+      # ----------------------------------------------------------
+      - name: Configurar chave SSH privada
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "✓ Chave SSH privada configurada em ~/.ssh/id_rsa"
+
+      # ----------------------------------------------------------
+      # 9. Ansible Playbook (configura app + banco)
+      # ----------------------------------------------------------
+      - name: Instalar Ansible
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --upgrade "ansible-core<2.20" 2>/dev/null || \
+            python3 -m pip install --quiet --upgrade ansible
+          echo "✓ Ansible instalado"
+
+      - name: Executar Ansible Playbook
+        working-directory: pm04/ansible
+        run: |
+          set -euo pipefail
+          echo "== Configurando VMs via Ansible =="
+          ansible-playbook playbook.yml \
+            -i inventory.yml \
+            --extra-vars "update_os=${{ env.UPDATE_OS }}" \
+            --extra-vars "extra_packages=${{ github.event.inputs.extra_packages }}" \
+            --extra-vars "docker_tag=${{ github.event.inputs.docker_tag }}" \
+            --extra-vars "environment=${{ github.event.inputs.environment }}" \
+            --extra-vars "db_private_ip=${{ env.DB_PRIVATE_IP }}"
+          echo "✓ Configuração concluída"
+
+      # ----------------------------------------------------------
+      # 10. Smoke test (health check)
+      # ----------------------------------------------------------
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          APP_PUBLIC_IP="${{ env.APP_PUBLIC_IP }}"
+          echo "== Smoke test em http://${APP_PUBLIC_IP} =="
+
+          status=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            echo "Tentativa ${attempt}/10 ..."
+            code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+              "http://${APP_PUBLIC_IP}/healthz" 2>/dev/null || true)
+            if [ "${code}" = "200" ]; then
+              echo "✓ HTTP /healthz respondeu 200"
+              status=0
+              break
+            fi
+            code_https=$(curl -sk -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+              "https://${APP_PUBLIC_IP}/healthz" 2>/dev/null || true)
+            if [ "${code_https}" = "200" ]; then
+              echo "✓ HTTPS /healthz respondeu 200 (cert autoassinado, -k)"
+              status=0
+              break
+            fi
+            echo "   (http=${code:-timeout}, https=${code_https:-timeout})"
+            status=1
+            sleep 15
+          done
+
+          if [ "${status}" -ne 0 ]; then
+            echo "::error::Smoke test falhou: /healthz não respondeu 200 em HTTP nem HTTPS."
+            exit 1
+          fi
+          echo "✓ Deploy validado com sucesso"
