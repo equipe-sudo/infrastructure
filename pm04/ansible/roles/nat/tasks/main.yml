@@ -2,13 +2,25 @@
 # ============================================================
 # Role: nat (VM app)
 # ============================================================
-# Transforma a VM app em NAT gateway para o banco (subnet privada, SEM IP
-# público). O Always Free da OCI tem limite 0 de NAT gateways, então a VM
-# app faz MASQUERADE do tráfego de SAÍDA do banco (Docker/pacotes/OS updates).
+# Transforma a VM app em NAT para o banco (subnet privada, SEM IP
+# público), permitindo o egress do banco (Docker/pacotes/OS updates).
+# No AWS, o egress de subnet privada normalmente usa NAT Gateway/NAT
+# instance; aqui reaproveitamos a VM app como NAT instance. O Terraform
+# deve desabilitar o Source/Destination Check na ENI da app e apontar a
+# rota 0.0.0.0/0 da subnet do banco para a app.
 #
-# Idempotência: sysctl (idempotente), firewall-cmd --permanent (idempotente)
-# e iptables -C (verifica antes de adicionar). Tudo com changed_when: false
-# para não gerar "changed" espúrio no 2º run (Cenário 3).
+# AL2023 NÃO instala firewalld por padrão; o backend de firewall é o
+# iptables-nft. Garantimos o pacote (fornece o binário `iptables`) e
+# aplicamos ip_forward + FORWARD ACCEPT + MASQUERADE.
+#
+# Idempotência: dnf (state present), sysctl (idempotente) e iptables -C
+# (verifica antes de adicionar). Tudo com changed_when: false para não
+# gerar "changed" espúrio no 2º run.
+
+- name: Garantir iptables-nft (backend de firewall do AL2023)
+  ansible.builtin.dnf:
+    name: iptables-nft
+    state: present
 
 - name: Habilitar IP forwarding (persistente)
   ansible.builtin.shell: |
@@ -18,7 +30,7 @@
 
 - name: Habilitar masquerade e forwarding (NAT do banco)
   ansible.builtin.shell: |
-    # firewalld (persistente), se estiver ativo
+    # firewalld (persistente), se por acaso estiver instalado/ativo
     if systemctl is-active --quiet firewalld; then
       firewall-cmd --permanent --add-masquerade >/dev/null 2>&1 || true
       firewall-cmd --reload >/dev/null 2>&1 || true

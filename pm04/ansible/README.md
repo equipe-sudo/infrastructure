@@ -1,6 +1,6 @@
-# PM-04 — Ansible: Smart Construction em 2 VMs OCI
+# PM-04 — Ansible: Smart Construction em 2 VMs AWS
 
-Provisiona duas VMs **Oracle Linux** provisionadas pelo Terraform e sobe o
+Provisiona duas VMs **Amazon Linux 2023** provisionadas pelo Terraform e sobe o
 aplicativo **Smart Construction**:
 
 | VM | Subnet | IP | Papel |
@@ -9,7 +9,7 @@ aplicativo **Smart Construction**:
 | `db`  | privada | privado (sem IP público) | somente PostgreSQL 17 |
 
 A VM `db` é acessível apenas via SSH bastion (ProxyCommand pela `app`) e pela
-porta **5432** vinda da `app` (regra de NSG aplicada no Terraform).
+porta **5432** vinda da `app` (regra de Security Group aplicada no Terraform).
 
 ## Estrutura
 
@@ -55,8 +55,10 @@ Com `false` (padrão) não faz nada. Idempotente: o módulo `dnf` só reporta
 ### `docker`
 Instala Docker CE (repo oficial `download.docker.com`), `docker-ce-cli`,
 `containerd.io`, `docker-buildx-plugin` e `docker-compose-plugin`; inicia e
-habilita o daemon; adiciona `opc` ao grupo `docker`; instala `extra_packages`.
-Todos os módulos (`dnf`, `get_url`, `systemd`, `user`) são idempotentes.
+habilita o daemon; adiciona `ec2-user` ao grupo `docker`; instala `extra_packages`.
+Como o AL2023 resolve `$releasever` como `2023` (inexistente no repo CentOS), a
+role fixa `$releasever=9` (via `replace`) após baixar o `docker-ce.repo`.
+Todos os módulos (`dnf`, `get_url`, `replace`, `systemd`, `user`) são idempotentes.
 
 ### `postgres` (hosts `db`)
 Gera os segredos `migration-password` e `api-password` em
@@ -139,5 +141,10 @@ ansible-playbook -i inventory.yml playbook.yml \
 - **HTTPS** usa certificado autoassinado (browser exibe aviso). Para um domínio
   real, gere um certificado válido ou use Cloudflare Tunnel, ajustando
   `APP_PUBLIC_ORIGIN` no `.env` e a SAN do certificado.
-- A **porta 5432** é liberada apenas para a origem da app pelo NSG/Security
-  List do Terraform (fora do escopo deste repositório Ansible).
+- A **porta 5432** é liberada apenas para a origem da app pelo Security Group
+  do Terraform (fora do escopo deste repositório Ansible).
+- **NAT instance**: a VM `app` faz NAT (MASQUERADE) do egress do banco. No AWS,
+  o Terraform precisa desabilitar o **Source/Destination Check** na ENI da `app`
+  e apontar a rota `0.0.0.0/0` da subnet do banco para a `app`. O AL2023 não
+  tem `firewalld` por padrão — a role `nat` instala `iptables-nft` e aplica
+  `ip_forward` + `FORWARD ACCEPT` + `MASQUERADE` via `iptables`.

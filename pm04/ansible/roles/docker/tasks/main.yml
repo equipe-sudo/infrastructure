@@ -3,17 +3,21 @@
 # Role: docker
 # ============================================================
 # Instala Docker CE (repo oficial) + plugin compose, inicia/enable o
-# daemon, adiciona o usuário `opc` ao grupo docker e instala os pacotes
-# extras de `extra_packages` (lista separada por vírgula).
+# daemon, adiciona o usuário `ec2-user` ao grupo docker e instala os
+# pacotes extras de `extra_packages` (lista separada por vírgula).
 #
 # Idempotência: módulos dnf (state present), get_url (só baixa se mudou),
-# systemd (estado desejado) e user (append) são todos idempotentes.
+# replace (só altera se o padrão existir), systemd (estado desejado) e
+# user (append) são todos idempotentes.
 
 # ---------------------------------------------------------------
-# 0. Swap (segurança para VMs E2.1.Micro de 1 GB de RAM)
-#    Idempotente: `creates` pula quando /swapfile já existe.
+# 0. Swap (segurança para VMs t3.micro de 1 GB de RAM)
+#    O AL2023 só ativa swap/zram automaticamente em instâncias com
+#    MENOS de 800 MB (t3.nano etc.); a t3.micro (1 GB) NÃO tem swap por
+#    padrão, então criamos um swapfile de 2 GB. Idempotente: `creates`
+#    pula quando /swapfile já existe.
 # ---------------------------------------------------------------
-- name: Criar swap de 2 GB (necessário nas VMs de 1 GB)
+- name: Criar swap de 2 GB (necessário na VM de 1 GB)
   ansible.builtin.shell: |
     dd if=/dev/zero of=/swapfile bs=1M count=2048
     chmod 600 /swapfile
@@ -29,11 +33,20 @@
     state: present
   when: extra_packages | default('') | length > 0
 
-- name: Adicionar repositório oficial do Docker CE
+- name: Adicionar repositório oficial do Docker CE (CentOS, compatível com AL2023)
   ansible.builtin.get_url:
     url: https://download.docker.com/linux/centos/docker-ce.repo
     dest: /etc/yum.repos.d/docker-ce.repo
     mode: '0644'
+
+# O AL2023 não está listado no repo do Docker e resolve $releasever como
+# "2023", que não existe no layout centos/. Fixamos para 9 (base RHEL/CentOS 9
+# do AL2023). `replace` é idempotente: no 2º run o padrão não existe mais.
+- name: Apontar $releasever do repo Docker para 9 (compatibilidade AL2023)
+  ansible.builtin.replace:
+    path: /etc/yum.repos.d/docker-ce.repo
+    regexp: '\$releasever'
+    replace: '9'
 
 - name: Instalar Docker Engine + plugin Compose
   ansible.builtin.dnf:
@@ -51,8 +64,8 @@
     state: started
     enabled: true
 
-- name: Adicionar usuário opc ao grupo docker
+- name: Adicionar usuário ec2-user ao grupo docker
   ansible.builtin.user:
-    name: opc
+    name: ec2-user
     groups: docker
     append: true

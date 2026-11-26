@@ -18,7 +18,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/migration_password
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     # Publica 5432 em todas as interfaces. A VM db NÃO tem IP público;
-    # o NSG/Security List (Terraform) libera 5432 apenas para o IP privado
+    # o Security Group (Terraform) libera 5432 apenas para o IP privado
     # da VM app. Não há exposição à internet.
     ports:
       - '5432:5432'

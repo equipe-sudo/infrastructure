@@ -3,39 +3,46 @@
 # ============================================
 
 terraform {
-  # O backend nativo do OCI (backend "oci") exige Terraform >= 1.12.
-  required_version = ">= 1.12.0"
+  required_version = ">= 1.5.0"
 
   required_providers {
-    oci = {
-      source  = "oracle/oci"
-      version = ">= 5.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
 
   # ============================================
-  # Estado remoto — OCI Object Storage (nativo)
+  # Estado remoto — AWS S3
   # ============================================
-  # Guarda o terraform.tfstate no mesmo bucket da infra principal, mas em
-  # chave própria (`pm04/terraform.tfstate`) para não conflitar com o estado
-  # de `terraform/terraform.tfstate`. LOCKING de estado nativo, permitindo que
-  # o apply rode no GitHub Actions sem depender do estado local de uma máquina.
+  # Guarda o terraform.tfstate no bucket S3 da infra principal, em chave
+  # própria (`pm04/terraform.tfstate`), permitindo que o apply rode no
+  # GitHub Actions sem depender do estado local de uma máquina.
   #
-  # As credenciais vêm do perfil OCI (~/.oci/config) e da chave configurada no
-  # provider. Localmente, informe o perfil se não for o DEFAULT:
-  #   terraform init -backend-config="config_file_profile=KOLPZS"
-  backend "oci" {
-    bucket    = "equipe-sudo-tfstate"
-    key       = "pm04/terraform.tfstate"
-    namespace = "grhkdi3glvat"
-    region    = "sa-saopaulo-1"
+  # ⚠️ Blocos de backend NÃO aceitam variáveis (`var.aws_region`). O `region`
+  # é fixo aqui e pode ser sobrescrito no init, se o bucket for criado em
+  # outra região:
+  #   terraform init -backend-config="region=sa-east-1"
+  backend "s3" {
+    bucket = "equipe-sudo-tfstate"
+    key    = "pm04/terraform.tfstate"
+    region = "us-east-1"
   }
 }
 
-provider "oci" {
-  tenancy_ocid     = var.oci_tenancy_ocid
-  user_ocid        = var.oci_user_ocid
-  private_key_path = var.oci_private_key_path
-  fingerprint      = var.oci_fingerprint
-  region           = var.oci_region
+# Credenciais vêm do ambiente padrão da AWS (AWS_ACCESS_KEY_ID /
+# AWS_SECRET_ACCESS_KEY, ~/.aws/credentials ou perfil via AWS_PROFILE).
+provider "aws" {
+  region = var.aws_region
+}
+
+# ============================================
+# Tags comuns (padrão da equipe)
+# ============================================
+locals {
+  common_tags = {
+    Project     = var.instance_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
 }

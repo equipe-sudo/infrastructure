@@ -3,14 +3,14 @@ name: PM04 Deploy (Smart Construction)
 # ============================================================
 # Pipeline CI/CD do projeto PM-04 — "Smart Construction".
 #
-# Provisiona a infraestrutura (2 VMs OCI) com Terraform e
+# Provisiona a infraestrutura (2 VMs AWS, t3.micro) com Terraform e
 # configura as VMs (app + banco) com Ansible.
 #
-#   Terraform: pm04/terraform/   (backend remoto OCI Object Storage)
+#   Terraform: pm04/terraform/   (backend remoto AWS S3)
 #   Ansible:   pm04/ansible/     (inventory gerado a partir dos outputs do TF)
 #
 # Fluxo:
-#   1. init + plan + apply do Terraform
+#   1. credenciais AWS + init + plan + apply do Terraform (backend S3)
 #   2. gera inventory do Ansible com os IPs reais (outputs do TF)
 #   3. configura SSH (bastion via VM app, ProxyJump p/ banco)
 #   4. roda o playbook Ansible
@@ -35,13 +35,13 @@ on:
         type: string
         default: "smart-construction"
       instance_type:
-        description: "Tipo/shape da VM (t3.micro = E2.1.Micro AMD; t3.small = A1.Flex ARM)"
+        description: "Tipo de instância EC2 (t3.micro = Free Tier; t2.micro = alternativa)"
         required: true
         type: choice
-        default: "VM.Standard.A1.Flex"
+        default: "t3.micro"
         options:
-          - "VM.Standard.A1.Flex"
-          - "VM.Standard.E2.1.Micro"
+          - "t3.micro"
+          - "t2.micro"
       docker_tag:
         description: "Tag da imagem Docker a implantar"
         required: true
@@ -88,53 +88,19 @@ jobs:
           terraform_version: ">=1.12"
 
       # ----------------------------------------------------------
-      # 2b. Resolver parâmetros (shape-dependent + boolean)
+      # 3. Configurar credenciais AWS
+      #    (substitui a antiga configuração da OCI CLI ~/.oci/config)
       # ----------------------------------------------------------
-      - name: Resolver parâmetros
-        run: |
-          set -euo pipefail
-          # OCPUs/RAM dependem do shape escolhido (valores Always Free)
-          if [ "${{ github.event.inputs.instance_type }}" = "VM.Standard.A1.Flex" ]; then
-            VM_OCPUS="2"
-            VM_MEMORY_GB="12"
-          else
-            VM_OCPUS="1"
-            VM_MEMORY_GB="1"
-          fi
-
-          # Converte o boolean (input do GH chega como string "true"/"false")
-          if [ "${{ github.event.inputs.update_os }}" = "true" ]; then
-            UPDATE_OS="true"
-          else
-            UPDATE_OS="false"
-          fi
-
-          echo "VM_OCPUS=$VM_OCPUS" >> "$GITHUB_ENV"
-          echo "VM_MEMORY_GB=$VM_MEMORY_GB" >> "$GITHUB_ENV"
-          echo "UPDATE_OS=$UPDATE_OS" >> "$GITHUB_ENV"
-          echo "✓ Shape=${{ github.event.inputs.instance_type }} → OCPUs=${VM_OCPUS}, RAM=${VM_MEMORY_GB}GB, update_os=${UPDATE_OS}"
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       # ----------------------------------------------------------
-      # 3. Configurar OCI CLI (~/.oci/config + chave PEM)
-      #    Padrão copiado de terraform-ci.yml
-      # ----------------------------------------------------------
-      - name: Configurar OCI CLI
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.oci
-          echo "[DEFAULT]" > ~/.oci/config
-          echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
-          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
-          echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
-          echo "region=${{ secrets.OCI_REGION }}" >> ~/.oci/config
-          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
-          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/oci_api_key.pem ~/.oci/config
-          echo "✓ OCI CLI configurada (perfil DEFAULT)"
-
-      # ----------------------------------------------------------
-      # 3b. Configurar chave SSH pública (injetada nas VMs via metadata)
-      #     O compute.tf usa var.ssh_public_key_path (default ~/.ssh/id_rsa.pub)
+      # 4. Configurar chave SSH pública (injetada nas VMs via key pair)
+      #    O compute.tf usa var.ssh_public_key_path (default ~/.ssh/id_rsa.pub)
       # ----------------------------------------------------------
       - name: Configurar chave SSH pública
         run: |
@@ -145,7 +111,7 @@ jobs:
           echo "✓ Chave SSH pública configurada em ~/.ssh/id_rsa.pub"
 
       # ----------------------------------------------------------
-      # 4. Terraform Init (backend OCI Object Storage)
+      # 5. Terraform Init (backend AWS S3)
       # ----------------------------------------------------------
       - name: Terraform Init
         working-directory: pm04/terraform
@@ -154,13 +120,12 @@ jobs:
           terraform init \
             -backend-config="bucket=equipe-sudo-tfstate" \
             -backend-config="key=pm04/terraform.tfstate" \
-            -backend-config="namespace=grhkdi3glvat" \
-            -backend-config="region=sa-saopaulo-1" \
+            -backend-config="region=${{ secrets.AWS_REGION }}" \
             -input=false
-          echo "✓ Terraform init concluído (backend OCI)"
+          echo "✓ Terraform init concluído (backend S3)"
 
       # ----------------------------------------------------------
-      # 5. Terraform Plan
+      # 6. Terraform Plan
       # ----------------------------------------------------------
       - name: Terraform Plan
         working-directory: pm04/terraform
@@ -170,19 +135,13 @@ jobs:
           terraform plan -out=tfplan -input=false -no-color \
             -var="environment=${{ github.event.inputs.environment }}" \
             -var="instance_name=${{ github.event.inputs.instance_name }}" \
-            -var="vm_shape=${{ github.event.inputs.instance_type }}" \
-            -var="vm_ocpus=${{ env.VM_OCPUS }}" \
-            -var="vm_memory_gb=${{ env.VM_MEMORY_GB }}" \
-            -var="oci_tenancy_ocid=${{ secrets.OCI_TENANCY_OCID }}" \
-            -var="oci_user_ocid=${{ secrets.OCI_USER_OCID }}" \
-            -var="oci_fingerprint=${{ secrets.OCI_FINGERPRINT }}" \
-            -var="oci_private_key_path=~/.oci/oci_api_key.pem" \
-            -var="oci_region=${{ secrets.OCI_REGION }}" \
+            -var="instance_type=${{ github.event.inputs.instance_type }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
             -var="ssh_public_key_path=~/.ssh/id_rsa.pub"
           echo "✓ Plano salvo em tfplan"
 
       # ----------------------------------------------------------
-      # 6. Terraform Apply
+      # 7. Terraform Apply
       # ----------------------------------------------------------
       - name: Terraform Apply
         working-directory: pm04/terraform
@@ -193,7 +152,7 @@ jobs:
           echo "✓ Infraestrutura provisionada"
 
       # ----------------------------------------------------------
-      # 7. Capturar outputs do Terraform e gerar inventory do Ansible
+      # 8. Capturar outputs do Terraform e gerar inventory do Ansible
       # ----------------------------------------------------------
       - name: Gerar inventory do Ansible
         id: inventory
@@ -225,7 +184,7 @@ jobs:
           echo "✓ Inventory gerado em pm04/ansible/inventory.yml"
 
       # ----------------------------------------------------------
-      # 8. Setup SSH key privada (bastion)
+      # 9. Setup SSH key privada (bastion)
       # ----------------------------------------------------------
       - name: Configurar chave SSH privada
         run: |
@@ -236,7 +195,7 @@ jobs:
           echo "✓ Chave SSH privada configurada em ~/.ssh/id_rsa"
 
       # ----------------------------------------------------------
-      # 9. Ansible Playbook (configura app + banco)
+      # 10. Ansible Playbook (configura app + banco)
       # ----------------------------------------------------------
       - name: Instalar Ansible
         run: |
@@ -252,7 +211,7 @@ jobs:
           echo "== Configurando VMs via Ansible =="
           ansible-playbook playbook.yml \
             -i inventory.yml \
-            --extra-vars "update_os=${{ env.UPDATE_OS }}" \
+            --extra-vars "update_os=${{ github.event.inputs.update_os }}" \
             --extra-vars "extra_packages=${{ github.event.inputs.extra_packages }}" \
             --extra-vars "docker_tag=${{ github.event.inputs.docker_tag }}" \
             --extra-vars "environment=${{ github.event.inputs.environment }}" \
@@ -260,7 +219,7 @@ jobs:
           echo "✓ Configuração concluída"
 
       # ----------------------------------------------------------
-      # 10. Smoke test (health check)
+      # 11. Smoke test (health check)
       # ----------------------------------------------------------
       - name: Smoke test
         run: |

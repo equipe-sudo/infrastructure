@@ -5,7 +5,7 @@ name: PM04 Destroy (Smart Construction)
 #
 # ⚠️ ALTO IMPACTO: remove as VMs (app + banco) e todos os
 # recursos provisionados pelo Terraform. Não há rollback — o
-# estado remoto (bucket equipe-sudo-tfstate) é atualizado.
+# estado remoto (bucket equipe-sudo-tfstate, S3) é atualizado.
 #
 # Use apenas quando houver certeza. Ação manual (workflow_dispatch).
 # ============================================================
@@ -41,19 +41,15 @@ jobs:
         with:
           terraform_version: ">=1.12"
 
-      - name: Configurar OCI CLI
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.oci
-          echo "[DEFAULT]" > ~/.oci/config
-          echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
-          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
-          echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
-          echo "region=${{ secrets.OCI_REGION }}" >> ~/.oci/config
-          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
-          echo "${{ secrets.OCI_CLI_KEY_CONTENT }}" > ~/.oci/oci_api_key.pem
-          chmod 600 ~/.oci/oci_api_key.pem ~/.oci/config
-          echo "✓ OCI CLI configurada (perfil DEFAULT)"
+      # ----------------------------------------------------------
+      # Credenciais AWS (substitui a antiga OCI CLI ~/.oci/config)
+      # ----------------------------------------------------------
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       # Chave pública necessária para o terraform (compute.tf usa var.ssh_public_key_path)
       - name: Configurar chave SSH pública
@@ -81,10 +77,9 @@ jobs:
           terraform init \
             -backend-config="bucket=equipe-sudo-tfstate" \
             -backend-config="key=pm04/terraform.tfstate" \
-            -backend-config="namespace=grhkdi3glvat" \
-            -backend-config="region=sa-saopaulo-1" \
+            -backend-config="region=${{ secrets.AWS_REGION }}" \
             -input=false
-          echo "✓ Terraform init concluído (backend OCI)"
+          echo "✓ Terraform init concluído (backend S3)"
 
       - name: Terraform Destroy
         working-directory: pm04/terraform
@@ -93,10 +88,6 @@ jobs:
           echo "== Destruindo infraestrutura (environment=${{ github.event.inputs.environment }}) =="
           terraform destroy -auto-approve -input=false \
             -var="environment=${{ github.event.inputs.environment }}" \
-            -var="oci_tenancy_ocid=${{ secrets.OCI_TENANCY_OCID }}" \
-            -var="oci_user_ocid=${{ secrets.OCI_USER_OCID }}" \
-            -var="oci_fingerprint=${{ secrets.OCI_FINGERPRINT }}" \
-            -var="oci_private_key_path=~/.oci/oci_api_key.pem" \
-            -var="oci_region=${{ secrets.OCI_REGION }}" \
+            -var="aws_region=${{ secrets.AWS_REGION }}" \
             -var="ssh_public_key_path=~/.ssh/id_rsa.pub"
           echo "✓ Infraestrutura destruída"
