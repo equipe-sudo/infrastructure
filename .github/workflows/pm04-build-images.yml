@@ -61,6 +61,13 @@ jobs:
           file: ./smart-construction/Dockerfile
           push: true
           tags: ghcr.io/equipe-sudo/smart-construction-web:${{ github.event.inputs.tag }}
+          # Build args obrigatórios (iguais aos do compose.yaml de origem):
+          # definem os rewrites do Next.js para /assets (SeaweedFS editorial)
+          # e para /api/v1 (FastAPI). Sem eles o catálogo e o SSR quebram.
+          build-args: |
+            NEXT_PUBLIC_ASSETS_BASE_URL=/assets
+            ASSETS_PROXY_URL=http://storage:8333/smart-assets
+            API_PROXY_URL=http://api:8000
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
