@@ -1,0 +1,197 @@
+---
+# ============================================================
+# Role: smartapp (VM app)
+# ============================================================
+# Sobe gateway/web/api/api-migrate/storage/private-storage (+ inits) via
+# docker compose, com volumes persistentes e segredos montados de
+# /opt/smart-construction/.secrets/. A API conecta no IP privado do banco
+# (db_private_ip) e o gateway expõe HTTPS (certificado autoassinado).
+#
+# Segredos: backend/* em 0444 (o container da API roda como uid 10001
+# não-root e precisa ler) e storage/* em 0600 (containers rodam root).
+# A proteção no host vem do diretório .secrets 0700 (só root lista/lê).
+
+- name: Instalar openssl (geração do certificado)
+  ansible.builtin.dnf:
+    name: openssl
+    state: present
+
+- name: Criar diretórios do projeto
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ project_dir }}", mode: '0755' }
+    - { path: "{{ backend_secrets_dir }}", mode: '0700' }
+    - { path: "{{ storage_secrets_dir }}", mode: '0700' }
+    - { path: "{{ tls_dir }}", mode: '0700' }
+    - { path: "{{ seed_dir }}", mode: '0755' }
+    - { path: "{{ project_dir }}/nginx", mode: '0755' }
+    - { path: "{{ project_dir }}/storage", mode: '0755' }
+
+# ---------------------------------------------------------------
+# Segredos da aplicação (gerados no host, nunca no repo)
+# ---------------------------------------------------------------
+- name: Gerar segredos da aplicação (se ausentes)
+  ansible.builtin.copy:
+    dest: "{{ secrets_dir }}/{{ item.path }}"
+    content: "{{ lookup('password', '/dev/null', length=64, chars=['ascii_letters', 'digits']) }}\n"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+    force: false
+  loop:
+    - { path: storage/access-key, mode: '0600' }
+    - { path: storage/secret-key, mode: '0600' }
+    - { path: storage/admin-password, mode: '0600' }
+    - { path: backend/s3-bootstrap-access-key, mode: '0444' }
+    - { path: backend/s3-bootstrap-secret-key, mode: '0444' }
+    - { path: backend/s3-api-access-key, mode: '0444' }
+    - { path: backend/s3-api-secret-key, mode: '0444' }
+    - { path: backend/s3-admin-password, mode: '0444' }
+
+- name: Copiar gerador de s3-identities.json
+  ansible.builtin.copy:
+    src: generate_identities.py
+    dest: "{{ project_dir }}/generate_identities.py"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Gerar s3-identities.json do SeaweedFS privado (idempotente)
+  ansible.builtin.command:
+    cmd: python3 generate_identities.py
+    chdir: "{{ project_dir }}"
+  environment:
+    SECRETS_DIR: "{{ backend_secrets_dir }}"
+  register: _identities
+  changed_when: "'gerado' in _identities.stdout"
+
+# ---------------------------------------------------------------
+# Segredos compartilhados com o banco (gerados na VM db)
+# ---------------------------------------------------------------
+- name: Ler segredos do banco na VM db
+  ansible.builtin.slurp:
+    src: "{{ backend_secrets_dir }}/{{ item }}"
+  delegate_to: db-vm
+  loop:
+    - migration-password
+    - api-password
+  register: _db_secrets
+
+- name: Gravar segredos do banco na VM app (legíveis pelo user api)
+  ansible.builtin.copy:
+    dest: "{{ backend_secrets_dir }}/{{ item.item }}"
+    content: "{{ item.content | b64decode }}"
+    owner: root
+    group: root
+    mode: '0444'
+  loop: "{{ _db_secrets.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ---------------------------------------------------------------
+# Arquivos estáticos da aplicação
+# ---------------------------------------------------------------
+- name: Copiar docker-compose da aplicação
+  ansible.builtin.copy:
+    src: docker-compose.app.yml
+    dest: "{{ project_dir }}/docker-compose.app.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Copiar configuração do Nginx
+  ansible.builtin.copy:
+    src: nginx/default.conf
+    dest: "{{ project_dir }}/nginx/default.conf"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Copiar scripts do SeaweedFS editorial
+  ansible.builtin.copy:
+    src: "storage/{{ item }}"
+    dest: "{{ project_dir }}/storage/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - start.sh
+    - init.sh
+    - cli.sh
+
+- name: Copiar script do SeaweedFS privado
+  ansible.builtin.copy:
+    src: private-storage.sh
+    dest: "{{ project_dir }}/private-storage.sh"
+    owner: root
+    group: root
+    mode: '0644'
+
+# ---------------------------------------------------------------
+# .env (sem segredos) e certificado HTTPS
+# ---------------------------------------------------------------
+- name: Gerar .env da aplicação
+  ansible.builtin.template:
+    src: .env.j2
+    dest: "{{ project_dir }}/.env"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Gerar certificado autoassinado para HTTPS (se ausente)
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -nodes -newkey rsa:2048 -days 825
+      -keyout {{ tls_dir }}/tls.key
+      -out {{ tls_dir }}/tls.crt
+      -subj "/CN={{ ansible_host }}"
+      -addext "subjectAltName=IP:{{ ansible_host }}"
+  args:
+    creates: "{{ tls_dir }}/tls.crt"
+
+- name: Ajustar permissões do certificado e da chave
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ tls_dir }}/tls.crt", mode: '0644' }
+    - { path: "{{ tls_dir }}/tls.key", mode: '0600' }
+
+# ---------------------------------------------------------------
+# Imagens seed (opcional — sem elas o catálogo sobe sem fotos)
+# ---------------------------------------------------------------
+- name: Copiar imagens seed do armazenamento editorial (opcional)
+  ansible.builtin.copy:
+    src: "{{ seed_images_source }}/"
+    dest: "{{ seed_dir }}/"
+    mode: preserve
+  when: seed_images_source | default('') | length > 0
+
+# ---------------------------------------------------------------
+# Subir a aplicação
+# ---------------------------------------------------------------
+- name: Subir a aplicação (idempotente)
+  community.docker.docker_compose_v2:
+    project_src: "{{ project_dir }}"
+    project_name: smart-construction
+    files:
+      - docker-compose.app.yml
+    state: present
+    pull: "{{ docker_pull_policy }}"
+    remove_orphans: true
+    timeout: 900
+
+- name: Aguardar gateway HTTPS responder
+  ansible.builtin.uri:
+    url: https://127.0.0.1/healthz
+    validate_certs: false
+    status_code: [200]
+  register: _gw
+  until: _gw.status == 200
+  retries: 30
+  delay: 10

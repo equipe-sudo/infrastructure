@@ -1,0 +1,61 @@
+---
+# ============================================================
+# PM-04 — Variáveis globais (defaults)
+# ============================================================
+# Variáveis repassadas pela pipeline (override via `-e` no workflow):
+#   update_os, extra_packages, docker_tag, environment, db_private_ip
+
+# Controla `dnf update` no SO (role os_updates). false = não atualiza.
+update_os: false
+
+# Pacotes extras instalados via dnf (lista separada por vírgula).
+# Ex.: "git,curl,openssl,python3-pip"
+extra_packages: ""
+
+# Tag das imagens ghcr.io/equipe-sudo/smart-construction-{web,api}.
+# O CI publica com a tag do build; aqui o default é `latest`.
+docker_tag: latest
+
+# Ambiente da API (development | test | production).
+# `production` habilita cookie Secure e exige HTTPS (requisito PM-04).
+environment: production
+
+# IP privado da VM de banco (output do Terraform). A API e a migração
+# conectam neste IP pela rede privada da VCN — NUNCA por IP público.
+db_private_ip: "<DB_PRIVATE_IP>"
+
+# Política de pull do docker compose (missing = só baixa se a imagem
+# da tag não estiver local — preserva idempotência e puxa tags novas).
+docker_pull_policy: missing
+
+# Fonte opcional das imagens seed do armazenamento editorial (no control
+# node). Vazio = não copia (catálogo sobe sem fotos; ver README).
+seed_images_source: ""
+
+# ------------------------------------------------------------
+# Caminhos no host (segredos ficam sob .secrets, nunca no repo)
+# ------------------------------------------------------------
+project_dir: /opt/smart-construction
+secrets_dir: "{{ project_dir }}/.secrets"
+backend_secrets_dir: "{{ secrets_dir }}/backend"
+storage_secrets_dir: "{{ secrets_dir }}/storage"
+tls_dir: "{{ project_dir }}/tls"
+seed_dir: "{{ project_dir }}/seed"
+
+# ------------------------------------------------------------
+# Imagens (contrato do PM-04)
+# ------------------------------------------------------------
+web_image: "ghcr.io/equipe-sudo/smart-construction-web:{{ docker_tag }}"
+api_image: "ghcr.io/equipe-sudo/smart-construction-api:{{ docker_tag }}"
+gateway_image: "nginx:1.28-alpine"
+postgres_image: "postgres:17-bookworm"
+seaweedfs_image: "chrislusf/seaweedfs:4.48"
+aws_cli_image: "amazon/aws-cli:2.38.3"
+
+# ------------------------------------------------------------
+# Banco de dados
+# ------------------------------------------------------------
+db_name: smart_construction
+db_migrator_user: smart_migrator
+db_runtime_user: smart_api
+db_port: 5432

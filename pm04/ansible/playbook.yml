@@ -1,0 +1,35 @@
+---
+# ============================================================
+# PM-04 — Playbook mestre
+# ============================================================
+# Ordem importa:
+#   1) os_updates + docker nas DUAS VMs
+#   2) postgres na VM db (a app depende do banco)
+#   3) smartapp na VM app
+#
+# Uso:
+#   ansible-playbook playbook.yml [--syntax-check]
+#   ansible-playbook playbook.yml -e update_os=true -e docker_tag=v1.2.3 \
+#       -e db_private_ip=10.0.0.10
+
+- name: PM-04 — Preparar SO e Docker (app e db)
+  hosts: all
+  become: true
+  gather_facts: false
+  roles:
+    - os_updates
+    - docker
+
+- name: PM-04 — PostgreSQL 17 na VM de banco
+  hosts: db
+  become: true
+  gather_facts: false
+  roles:
+    - postgres
+
+- name: PM-04 — Aplicação na VM app (gateway, web, api, storages)
+  hosts: app
+  become: true
+  gather_facts: false
+  roles:
+    - smartapp
