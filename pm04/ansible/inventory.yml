@@ -1,5 +1,5 @@
 # ============================================================
-# PM-04 — Inventário (2 VMs OCI / Oracle Linux)
+# PM-04 — Inventário (2 VMs AWS / Amazon Linux 2023)
 # ============================================================
 # Placeholders <APP_PUBLIC_IP> e <DB_PRIVATE_IP> são substituídos pelo
 # workflow de deploy (GitHub Actions) a partir dos outputs do Terraform:
@@ -8,7 +8,7 @@
 #
 # A VM de banco só é alcançável por SSH através da VM de aplicação
 # (bastion), usando ProxyCommand. A porta 5432 é liberada apenas para
-# o IP privado da VM app (regra de NSG/Security List aplicada no
+# o IP privado da VM app (regra de Security Group aplicada no
 # Terraform, fora deste repositório Ansible).
 
 all:
@@ -17,7 +17,7 @@ all:
       hosts:
         app-vm:
           ansible_host: <APP_PUBLIC_IP>
-          ansible_user: opc
+          ansible_user: ec2-user
           ansible_ssh_private_key_file: ~/.ssh/id_rsa
           ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new'
 
@@ -25,7 +25,7 @@ all:
       hosts:
         db-vm:
           ansible_host: <DB_PRIVATE_IP>
-          ansible_user: opc
+          ansible_user: ec2-user
           ansible_ssh_private_key_file: ~/.ssh/id_rsa
           # Bastion hop: o SSH para o banco atravessa a VM app (IP público).
-          ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new -o ProxyCommand=''ssh -W %h:%p -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_rsa opc@<APP_PUBLIC_IP>'''
+          ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new -o ProxyCommand=''ssh -W %h:%p -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_rsa ec2-user@<APP_PUBLIC_IP>'''

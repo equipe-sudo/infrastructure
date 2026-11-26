@@ -21,11 +21,11 @@ docker_tag: latest
 environment: production
 
 # IP privado da VM de banco (output do Terraform). A API e a migração
-# conectam neste IP pela rede privada da VCN — NUNCA por IP público.
+# conectam neste IP pela rede privada da VPC (AWS) — NUNCA por IP público.
 db_private_ip: "<DB_PRIVATE_IP>"
 
-# CIDR da subnet do banco (usado pela role `nat` para o MASQUERADE na app).
-# Deve bater com o db_subnet_cidr do Terraform (default 10.10.2.0/24).
+# CIDR da subnet privada do banco (usado pela role `nat` para o MASQUERADE
+# na app). Deve bater com o db_subnet_cidr do Terraform AWS (default 10.10.2.0/24).
 db_subnet_cidr: "10.10.2.0/24"
 
 # Política de pull do docker compose (missing = só baixa se a imagem

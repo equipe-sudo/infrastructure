@@ -1,82 +1,64 @@
 # ============================================
 # Terraform — Compute (PM-04)
 # ============================================
-# Duas VMs Always Free:
-#   - oci_core_instance.app : aplicação (Next.js + FastAPI + Nginx + 2× SeaweedFS) — subnet pública
-#   - oci_core_instance.db  : banco (PostgreSQL 17 exclusivo) — subnet privada
-#
-# shape_config só é enviado para shapes Flex (A1.Flex). Para shapes fixos
-# (E2.1.Micro) o provedor não aceita/deriva o valor, por isso o bloco é
-# condicional.
+# Duas instâncias EC2 (Amazon Linux 2023, t3.micro Free Tier):
+#   - aws_instance.app : aplicação (Next.js + FastAPI + Nginx + 2× SeaweedFS) — subnet pública
+#   - aws_instance.db  : banco (PostgreSQL 17 exclusivo) — subnet privada, SEM IP público
 
-locals {
-  is_flex = var.vm_shape == "VM.Standard.A1.Flex"
-}
-
-# --- Imagem Oracle Linux 8 compatível com o shape ---
-data "oci_core_images" "oracle_linux" {
-  compartment_id   = var.oci_tenancy_ocid
-  operating_system = "Oracle Linux"
-  shape            = var.vm_shape
+# ============================================
+# AMI — Amazon Linux 2023 (x86_64, não-minimal)
+# ============================================
+# O filtro `al2023-ami-2*` casa a imagem padrão (`al2023-ami-2023.x...x86_64`)
+# e EXCLUI a variante `al2023-ami-minimal-*` (nome começa com "m") e a
+# arquitetura arm64 (`...-aarch64`), que não serviriam para o perfil atual.
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
 
   filter {
-    name   = "display_name"
-    values = ["Oracle-Linux-8.*"]
-    regex  = true
+    name   = "name"
+    values = ["al2023-ami-2*-x86_64"]
   }
 
-  sort_by    = "TIMECREATED"
-  sort_order = "DESC"
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
 }
 
-# --- Domínio de disponibilidade ---
-data "oci_identity_availability_domains" "ads" {
-  compartment_id = var.oci_tenancy_ocid
+# ============================================
+# Key Pair — SSH (chave pública de var.ssh_public_key_path)
+# ============================================
+resource "aws_key_pair" "main" {
+  key_name   = "key-sc-${var.environment}"
+  public_key = file(pathexpand(var.ssh_public_key_path))
+
+  tags = merge(local.common_tags, { Name = "key-sc-${var.environment}" })
 }
 
 # ============================================
 # VM da aplicação (subnet pública, IP público)
 # ============================================
-resource "oci_core_instance" "app" {
-  compartment_id      = var.oci_tenancy_ocid
-  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-  display_name        = "vm-sc-app-${var.environment}"
-  shape               = var.vm_shape
+resource "aws_instance" "app" {
+  ami                         = data.aws_ami.al2023.id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.public.id
+  key_name                    = aws_key_pair.main.key_name
+  vpc_security_group_ids      = [aws_security_group.app.id]
+  associate_public_ip_address = true
 
-  dynamic "shape_config" {
-    for_each = local.is_flex ? [1] : []
-
-    content {
-      ocpus         = var.vm_ocpus
-      memory_in_gbs = var.vm_memory_gb
-    }
-  }
-
-  source_details {
-    source_id   = data.oci_core_images.oracle_linux.images[0].id
-    source_type = "image"
-  }
-
-  create_vnic_details {
-    subnet_id              = oci_core_subnet.public.id
-    assign_public_ip       = true
-    display_name           = "vnic-sc-app-${var.environment}"
-    hostname_label         = "scapp"
-    skip_source_dest_check = false
-  }
-
-  metadata = {
-    ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
-  }
+  # NAT do banco: a app roteia/masqueradeia o tráfego da subnet privada.
+  # source_dest_check = false é OBRIGATÓRIO para a instância aceitar e
+  # encaminhar pacotes que não são destinados a ela (ver role ansible `nat`).
+  source_dest_check = false
 
   lifecycle {
-    # Pinamos a imagem para que a publicação de uma imagem Oracle Linux 8 mais
-    # nova não recrie a instância (que conterá o boot volume da aplicação).
-    # O shape_config NÃO é ignorado: resize de A1.Flex é aplicado in-place.
-    ignore_changes = [source_details]
+    # Evita recriação da instância quando a AWS publica uma AL2023 mais nova
+    # (o disco da aplicação contém estado do deploy). A AMI é resolvida uma vez.
+    ignore_changes = [ami]
   }
 
-  freeform_tags = local.common_tags
+  tags = merge(local.common_tags, { Name = "vm-sc-app-${var.environment}" })
 }
 
 # ============================================
@@ -84,62 +66,17 @@ resource "oci_core_instance" "app" {
 # Executa exclusivamente o PostgreSQL 17. Os SeaweedFS (editorial e privado)
 # ficam na VM de aplicação, junto aos demais componentes.
 # ============================================
-resource "oci_core_instance" "db" {
-  compartment_id      = var.oci_tenancy_ocid
-  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-  display_name        = "vm-sc-db-${var.environment}"
-  shape               = var.vm_shape
-
-  dynamic "shape_config" {
-    for_each = local.is_flex ? [1] : []
-
-    content {
-      ocpus         = var.vm_ocpus
-      memory_in_gbs = var.vm_memory_gb
-    }
-  }
-
-  source_details {
-    source_id   = data.oci_core_images.oracle_linux.images[0].id
-    source_type = "image"
-  }
-
-  create_vnic_details {
-    subnet_id              = oci_core_subnet.private.id
-    assign_public_ip       = false
-    display_name           = "vnic-sc-db-${var.environment}"
-    hostname_label         = "scdb"
-    skip_source_dest_check = false
-  }
-
-  metadata = {
-    ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
-  }
+resource "aws_instance" "db" {
+  ami                         = data.aws_ami.al2023.id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.private.id
+  key_name                    = aws_key_pair.main.key_name
+  vpc_security_group_ids      = [aws_security_group.db.id]
+  associate_public_ip_address = false
 
   lifecycle {
-    # Mesmo raciocínio da VM de aplicação: evita recriação por nova imagem.
-    ignore_changes = [source_details]
+    ignore_changes = [ami]
   }
 
-  freeform_tags = local.common_tags
-}
-
-# ============================================
-# VNIC primária da VM app — next-hop do NAT do banco
-# ============================================
-# A route table da subnet do banco aponta 0.0.0.0/0 para o IP privado da VM
-# app, que faz masquerade (role ansible `nat`). Aqui buscamos o OCID do IP
-# privado primário da VNIC da app.
-
-data "oci_core_vnic_attachments" "app_vnics" {
-  compartment_id = var.oci_tenancy_ocid
-  instance_id    = oci_core_instance.app.id
-}
-
-data "oci_core_vnic" "app_vnic" {
-  vnic_id = data.oci_core_vnic_attachments.app_vnics.vnic_attachments[0].vnic_id
-}
-
-data "oci_core_private_ips" "app_private_ips" {
-  vnic_id = data.oci_core_vnic.app_vnic.id
+  tags = merge(local.common_tags, { Name = "vm-sc-db-${var.environment}" })
 }
