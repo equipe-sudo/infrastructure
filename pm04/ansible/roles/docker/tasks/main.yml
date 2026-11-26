@@ -9,6 +9,20 @@
 # Idempotência: módulos dnf (state present), get_url (só baixa se mudou),
 # systemd (estado desejado) e user (append) são todos idempotentes.
 
+# ---------------------------------------------------------------
+# 0. Swap (segurança para VMs E2.1.Micro de 1 GB de RAM)
+#    Idempotente: `creates` pula quando /swapfile já existe.
+# ---------------------------------------------------------------
+- name: Criar swap de 2 GB (necessário nas VMs de 1 GB)
+  ansible.builtin.shell: |
+    dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    grep -q '/swapfile' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+  args:
+    creates: /swapfile
+
 - name: Instalar pacotes extras (extra_packages)
   ansible.builtin.dnf:
     name: "{{ extra_packages.split(',') | map('trim') | reject('equalto', '') | list }}"

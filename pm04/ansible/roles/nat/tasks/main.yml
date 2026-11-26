@@ -1,0 +1,28 @@
+---
+# ============================================================
+# Role: nat (VM app)
+# ============================================================
+# Transforma a VM app em NAT gateway para o banco (subnet privada, SEM IP
+# público). O Always Free da OCI tem limite 0 de NAT gateways, então a VM
+# app faz MASQUERADE do tráfego de SAÍDA do banco (Docker/pacotes/OS updates).
+#
+# Idempotência: sysctl (idempotente), firewall-cmd --permanent (idempotente)
+# e iptables -C (verifica antes de adicionar). Tudo com changed_when: false
+# para não gerar "changed" espúrio no 2º run (Cenário 3).
+
+- name: Habilitar IP forwarding (persistente)
+  ansible.builtin.shell: |
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null
+    grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf || echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf
+  changed_when: false
+
+- name: Habilitar masquerade (firewalld se ativo; senão iptables direto)
+  ansible.builtin.shell: |
+    if systemctl is-active --quiet firewalld; then
+      firewall-cmd --permanent --add-masquerade >/dev/null 2>&1 || true
+      firewall-cmd --reload >/dev/null 2>&1 || true
+    fi
+    # Garantia independente do firewalld (idempotente via -C)
+    iptables -t nat -C POSTROUTING -s {{ db_subnet_cidr }} -j MASQUERADE 2>/dev/null || \
+      iptables -t nat -A POSTROUTING -s {{ db_subnet_cidr }} -j MASQUERADE
+  changed_when: false

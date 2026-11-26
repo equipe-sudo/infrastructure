@@ -90,6 +90,15 @@ com HTTPS + HSTS + `proxy_cookie_secure`.
 - `slurp` + `copy` só reescrevem quando o conteúdo difere.
 - Nenhuma task usa `shell` destrutivo; nada é removido sem aprovação.
 
+> **Nota sobre jobs one-shot.** Os serviços `api-migrate`, `storage-init` e
+> `private-storage-init` reexecutam a cada `docker compose up` (são
+> one-shot, `restart: 'no'`), mas são idempotentes por natureza: `alembic
+> upgrade head` vira no-op com o banco já migrado, `s3 sync --no-overwrite`
+> não sobrescreve e o bootstrap não altera bucket já existente. Os serviços
+> de longa duração (`web`, `api`, `gateway`, `storage`, `private-storage`,
+> `db`) usam `restart: unless-stopped` e não são recriados sem mudança de
+> config — é onde a idempotência "zero mudanças" se aplica estritamente.
+
 ## Segredos
 
 - **Nunca** vão para o repositório; são gerados no host em

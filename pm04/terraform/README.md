@@ -11,7 +11,7 @@ PostgreSQL 17 + 2× SeaweedFS) na OCI Always Free.
 | Subnet pública `sn-...-public-<env>` | `10.10.1.0/24` — VM de aplicação |
 | Subnet privada `sn-...-private-<env>` | `10.10.2.0/24` — VM de banco (sem IP público) |
 | Internet Gateway | Egress da subnet pública |
-| NAT Gateway + route table dedicada | Egress da subnet privada (OS updates/pacotes) |
+| Route table dedicada → IP privado da VM app | Egress da subnet do banco via NAT (masquerade na app) |
 | VM `vm-sc-app-<env>` | Aplicação, subnet pública, IP público |
 | VM `vm-sc-db-<env>` | Banco, subnet privada, **sem IP público** |
 
