@@ -24,6 +24,10 @@ environment: production
 # conectam neste IP pela rede privada da VCN — NUNCA por IP público.
 db_private_ip: "<DB_PRIVATE_IP>"
 
+# CIDR da subnet do banco (usado pela role `nat` para o MASQUERADE na app).
+# Deve bater com o db_subnet_cidr do Terraform (default 10.10.2.0/24).
+db_subnet_cidr: "10.10.2.0/24"
+
 # Política de pull do docker compose (missing = só baixa se a imagem
 # da tag não estiver local — preserva idempotência e puxa tags novas).
 docker_pull_policy: missing

@@ -123,3 +123,23 @@ resource "oci_core_instance" "db" {
 
   freeform_tags = local.common_tags
 }
+
+# ============================================
+# VNIC primária da VM app — next-hop do NAT do banco
+# ============================================
+# A route table da subnet do banco aponta 0.0.0.0/0 para o IP privado da VM
+# app, que faz masquerade (role ansible `nat`). Aqui buscamos o OCID do IP
+# privado primário da VNIC da app.
+
+data "oci_core_vnic_attachments" "app_vnics" {
+  compartment_id = var.oci_tenancy_ocid
+  instance_id    = oci_core_instance.app.id
+}
+
+data "oci_core_vnic" "app_vnic" {
+  vnic_id = data.oci_core_vnic_attachments.app_vnics.vnic_attachments[0].vnic_id
+}
+
+data "oci_core_private_ips" "app_private_ips" {
+  vnic_id = data.oci_core_vnic.app_vnic.id
+}

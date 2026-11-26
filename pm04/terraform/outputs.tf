@@ -18,7 +18,7 @@ output "db_vm_private_ip" {
 }
 
 output "db_vm_public_ip" {
-  description = "IP público da VM de banco — sempre vazio, pois a subnet é privada"
+  description = "IP público da VM de banco — sempre vazio: a VM não tem IP público (subnet privada, egress via NAT na VM app)."
   value       = ""
 }
 

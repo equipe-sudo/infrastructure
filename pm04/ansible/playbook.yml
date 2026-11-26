@@ -12,6 +12,13 @@
 #   ansible-playbook playbook.yml -e update_os=true -e docker_tag=v1.2.3 \
 #       -e db_private_ip=10.0.0.10
 
+- name: PM-04 — NAT na VM app (egress do banco)
+  hosts: app
+  become: true
+  gather_facts: false
+  roles:
+    - nat
+
 - name: PM-04 — Preparar SO e Docker (app e db)
   hosts: all
   become: true

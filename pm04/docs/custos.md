@@ -17,7 +17,7 @@
 | Boot volumes (2× ~47 GB) | ~94 GB | ✅ (limite 200 GB) | **$0,00** |
 | Block volume de dados (se usado) | até ~100 GB | ✅ (soma ≤ 200 GB) | **$0,00** |
 | Object Storage (backups, tfstate) | ≤ 20 GB | ✅ | **$0,00** |
-| Rede: Internet Gateway, NAT Gateway, VCN, 3 IPs públicos | conjunto | ✅ | **$0,00** |
+| Rede: Internet Gateway, VCN, 1 IP público (app) | conjunto | ✅ | **$0,00** |
 | Egress de Internet | ≪ 10 TB/mês | ✅ | **$0,00** |
 | **TOTAL** | | | **$0,00 / mês** |
 
