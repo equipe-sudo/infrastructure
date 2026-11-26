@@ -1,0 +1,68 @@
+---
+# ============================================================
+# Role: postgres (VM db)
+# ============================================================
+# Sobe postgres:17-bookworm com volume persistente e cria o banco
+# smart_construction. As senhas são geradas no host em
+# /opt/smart-construction/.secrets/backend/ e nunca vão para o repo.
+#
+# Idempotência: `copy` com `force: no` só grava quando o secret não
+# existe; o compose sobe o container no estado desejado; `wait_for`
+# retorna imediatamente se a porta já estiver aberta.
+
+- name: Criar diretórios do projeto e de segredos
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+    - "{{ project_dir }}"
+    - "{{ backend_secrets_dir }}"
+
+- name: Gerar segredos do banco (migrador e runtime) se ausentes
+  ansible.builtin.copy:
+    dest: "{{ backend_secrets_dir }}/{{ item }}"
+    content: "{{ lookup('password', '/dev/null', length=64, chars=['ascii_letters', 'digits']) }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  loop:
+    - migration-password
+    - api-password
+
+- name: Copiar docker-compose do banco
+  ansible.builtin.copy:
+    src: docker-compose.db.yml
+    dest: "{{ project_dir }}/docker-compose.db.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Copiar script de inicialização do role smart_api
+  ansible.builtin.copy:
+    src: init-db.sh
+    dest: "{{ project_dir }}/init-db.sh"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Subir PostgreSQL 17 (idempotente)
+  community.docker.docker_compose_v2:
+    project_src: "{{ project_dir }}"
+    project_name: smart-construction-db
+    files:
+      - docker-compose.db.yml
+    state: present
+    pull: "{{ docker_pull_policy }}"
+    remove_orphans: true
+    timeout: 600
+
+- name: Aguardar PostgreSQL aceitar conexões na porta 5432
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ db_port }}"
+    timeout: 300
+    state: started

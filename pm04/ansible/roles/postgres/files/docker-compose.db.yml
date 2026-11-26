@@ -1,0 +1,40 @@
+# ============================================================
+# PostgreSQL 17 — serviço isolado na VM db
+# ============================================================
+# Banco: smart_construction  |  migração: smart_migrator  |  runtime: smart_api
+# A senha do migrador entra via POSTGRES_PASSWORD_FILE; o role smart_api
+# é criado pelo init-db.sh (primeira inicialização do volume) com a senha
+# do secret runtime montado em /run/secrets/runtime_password.
+
+name: smart-construction-db
+
+services:
+  db:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smart_construction
+      POSTGRES_USER: smart_migrator
+      POSTGRES_PASSWORD_FILE: /run/secrets/migration_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    # Publica 5432 em todas as interfaces. A VM db NÃO tem IP público;
+    # o NSG/Security List (Terraform) libera 5432 apenas para o IP privado
+    # da VM app. Não há exposição à internet.
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-api-role.sh:ro
+      - ./.secrets/backend/migration-password:/run/secrets/migration_password:ro
+      - ./.secrets/backend/api-password:/run/secrets/runtime_password:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U smart_migrator -d smart_construction']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    logging:
+      driver: local
+
+volumes:
+  db-data:

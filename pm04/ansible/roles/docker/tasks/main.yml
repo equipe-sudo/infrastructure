@@ -1,0 +1,44 @@
+---
+# ============================================================
+# Role: docker
+# ============================================================
+# Instala Docker CE (repo oficial) + plugin compose, inicia/enable o
+# daemon, adiciona o usuário `opc` ao grupo docker e instala os pacotes
+# extras de `extra_packages` (lista separada por vírgula).
+#
+# Idempotência: módulos dnf (state present), get_url (só baixa se mudou),
+# systemd (estado desejado) e user (append) são todos idempotentes.
+
+- name: Instalar pacotes extras (extra_packages)
+  ansible.builtin.dnf:
+    name: "{{ extra_packages.split(',') | map('trim') | reject('equalto', '') | list }}"
+    state: present
+  when: extra_packages | default('') | length > 0
+
+- name: Adicionar repositório oficial do Docker CE
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: '0644'
+
+- name: Instalar Docker Engine + plugin Compose
+  ansible.builtin.dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Iniciar e habilitar o daemon Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Adicionar usuário opc ao grupo docker
+  ansible.builtin.user:
+    name: opc
+    groups: docker
+    append: true

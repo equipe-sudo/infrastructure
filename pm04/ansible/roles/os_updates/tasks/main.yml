@@ -1,0 +1,21 @@
+---
+# ============================================================
+# Role: os_updates
+# ============================================================
+# Aplica `dnf update` no SO de forma condicional e idempotente.
+#   - update_os = true  -> `dnf name="*" state=latest` (idempotente,
+#                          reporta changed apenas quando há pacotes).
+#   - update_os = false -> não faz nada (padrão).
+
+- name: Aplicar atualizações do SO (dnf update)
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  when: update_os | bool
+  register: _os_updates
+
+- name: Informar que o update do SO está desabilitado
+  ansible.builtin.debug:
+    msg: "update_os=false — dnf update ignorado (idempotente)."
+  when: not (update_os | bool)
+  changed_when: false
