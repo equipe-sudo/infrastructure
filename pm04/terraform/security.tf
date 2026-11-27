@@ -7,7 +7,7 @@
 # ============================================
 resource "aws_security_group" "app" {
   name        = "sc-app-${var.environment}"
-  description = "Aplicação Smart Construction — SSH/HTTP/HTTPS públicos"
+  description = "Aplicacao Smart Construction - SSH/HTTP/HTTPS publicos"
   vpc_id      = aws_vpc.main.id
 
   # SSH (gestão) — única porta de administração aberta para a internet
@@ -54,7 +54,7 @@ resource "aws_security_group" "app" {
 # ============================================
 resource "aws_security_group" "db" {
   name        = "sc-db-${var.environment}"
-  description = "Banco PostgreSQL 17 — acesso privado, apenas da subnet da aplicação"
+  description = "Banco PostgreSQL 17 - acesso privado, apenas da subnet da aplicacao"
   vpc_id      = aws_vpc.main.id
 
   # PostgreSQL — aceito SOMENTE da subnet pública da aplicação.
