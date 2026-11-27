@@ -6,7 +6,7 @@
 # SG — aplicação (subnet pública)
 # ============================================
 resource "aws_security_group" "app" {
-  name        = "sg-sc-app-${var.environment}"
+  name        = "sc-app-${var.environment}"
   description = "Aplicação Smart Construction — SSH/HTTP/HTTPS públicos"
   vpc_id      = aws_vpc.main.id
 
@@ -46,14 +46,14 @@ resource "aws_security_group" "app" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.common_tags, { Name = "sg-sc-app-${var.environment}" })
+  tags = merge(local.common_tags, { Name = "sc-app-${var.environment}" })
 }
 
 # ============================================
 # SG — banco (subnet privada)
 # ============================================
 resource "aws_security_group" "db" {
-  name        = "sg-sc-db-${var.environment}"
+  name        = "sc-db-${var.environment}"
   description = "Banco PostgreSQL 17 — acesso privado, apenas da subnet da aplicação"
   vpc_id      = aws_vpc.main.id
 
@@ -86,5 +86,5 @@ resource "aws_security_group" "db" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.common_tags, { Name = "sg-sc-db-${var.environment}" })
+  tags = merge(local.common_tags, { Name = "sc-db-${var.environment}" })
 }
