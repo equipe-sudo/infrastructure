@@ -111,6 +111,17 @@ jobs:
           echo "✓ Chave SSH pública configurada em ~/.ssh/id_rsa.pub"
 
       # ----------------------------------------------------------
+      # 4b. Garantir bucket S3 do state (idempotente)
+      #     O backend S3 exige que o bucket já exista antes do init.
+      # ----------------------------------------------------------
+      - name: Garantir bucket S3 do state
+        run: |
+          set -euo pipefail
+          aws s3 mb "s3://equipe-sudo-tfstate" --region "${{ secrets.AWS_REGION }}" 2>/dev/null \
+            || echo "✓ Bucket equipe-sudo-tfstate já existe — ok"
+          echo "✓ Bucket S3 do state pronto"
+
+      # ----------------------------------------------------------
       # 5. Terraform Init (backend AWS S3)
       # ----------------------------------------------------------
       - name: Terraform Init
