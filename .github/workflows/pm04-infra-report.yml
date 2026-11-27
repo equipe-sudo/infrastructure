@@ -1,0 +1,146 @@
+name: PM04 — Relatório de Infra e Custos (FinOps)
+
+# ============================================================
+# Gera um relatório markdown (no resumo do run) com o estado da
+# infraestrutura AWS e a estimativa de custo — para ter certeza de
+# que nada está gerando cobrança fora do Free Tier.
+#
+#   - EC2: instâncias, tipos, estados, IPs e custo/mês estimado.
+#   - EBS: total em GB (Free Tier = 30 GB).
+#   - Elastic IPs: conta os não-associados (cobram se não usados).
+#   - S3: buckets existentes.
+#   - Cost Explorer: custo real dos últimos 7 dias (se habilitado).
+#
+# Disparo: manual (botão) ou diário às 12:00 UTC (09:00 BRT).
+# O relatório sai no "Summary" do run (Job summary), sem commit.
+# ============================================================
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * *'  # diário 12:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: FinOps report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Gerar relatório
+        run: |
+          set -euo pipefail
+          REGION="${{ secrets.AWS_REGION }}"
+
+          # On-demand hourly rates (USD) — us-east-1/us-east-2
+          declare -A RATE=([t3.micro]=0.0104 [t2.micro]=0.0116 [t3.small]=0.0208 [t3.medium]=0.0416 [t2.small]=0.023)
+
+          {
+            echo "# 📊 Relatório de Infra e Custos — PM-04"
+            echo ""
+            echo "**Região:** \`$REGION\` · **Gerado:** $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+
+            # ----------------------------------------------------------
+            # EC2
+            # ----------------------------------------------------------
+            INSTANCES=$(aws ec2 describe-instances --region "$REGION" \
+              --query 'Reservations[].Instances[].[InstanceId,InstanceType,State.Name,PublicIpAddress]' \
+              --output json 2>/dev/null || echo '[]')
+            COUNT=$(echo "$INSTANCES" | jq 'length')
+            RUNNING=$(echo "$INSTANCES" | jq '[.[] | select(.[2]=="running")] | length')
+            TOTAL=0
+
+            echo "## 🖥️ EC2 — $COUNT instância(s) · $RUNNING em execução"
+            echo ""
+            if [ "$COUNT" -gt 0 ]; then
+              echo "| Instância | Tipo | Estado | IP público | Custo/mês (est.) |"
+              echo "|---|---|---|---|---|"
+              while IFS= read -r row; do
+                ID=$(echo "$row" | jq -r '.[0]')
+                TYPE=$(echo "$row" | jq -r '.[1]')
+                STATE=$(echo "$row" | jq -r '.[2]')
+                IP=$(echo "$row" | jq -r '.[3] // "-"')
+                R=${RATE[$TYPE]:-0.02}
+                if [ "$STATE" = "running" ]; then
+                  C=$(awk "BEGIN{printf \"%.2f\", $R*730}")
+                  TOTAL=$(awk "BEGIN{printf \"%.2f\", $TOTAL + $R*730}")
+                else
+                  C="0.00"
+                fi
+                echo "| $ID | $TYPE | $STATE | $IP | \$$C |"
+              done < <(echo "$INSTANCES" | jq -c '.[]')
+            else
+              echo "_Nenhuma instância._"
+            fi
+            echo ""
+            echo "**Custo EC2 estimado (30 dias, on-demand): \$$TOTAL**"
+            echo ""
+
+            # ----------------------------------------------------------
+            # EBS
+            # ----------------------------------------------------------
+            EBS_GB=$(aws ec2 describe-volumes --region "$REGION" \
+              --query 'Volumes[].Size' --output json 2>/dev/null | jq 'add // 0')
+            echo "## 💾 EBS — $EBS_GB GB (Free Tier: 30 GB)"
+            echo ""
+
+            # ----------------------------------------------------------
+            # Elastic IPs (não-associados custam ~US$0,005/hora)
+            # ----------------------------------------------------------
+            EIPS=$(aws ec2 describe-addresses --region "$REGION" \
+              --query 'Addresses[].{Ip:PublicIp,Assoc:AssociationId}' --output json 2>/dev/null || echo '[]')
+            EIP_TOTAL=$(echo "$EIPS" | jq 'length')
+            EIP_UNATT=$(echo "$EIPS" | jq '[.[] | select(.Assoc==null)] | length')
+            echo "## 🌐 Elastic IPs — $EIP_TOTAL total ($EIP_UNATT não-associado(s))"
+            if [ "$EIP_UNATT" -gt 0 ]; then
+              echo "> ⚠️ Elastic IP **não associado** a uma instância em execução gera cobrança (~US\$0,005/h). Verifique."
+            fi
+            echo ""
+
+            # ----------------------------------------------------------
+            # S3
+            # ----------------------------------------------------------
+            S3=$(aws s3api list-buckets --query 'Buckets[].Name' --output text 2>/dev/null || echo "")
+            S3_COUNT=$(echo "$S3" | tr '\t' '\n' | grep -c . || true)
+            echo "## 🪣 S3 — $S3_COUNT bucket(s): $S3"
+            echo ""
+
+            # ----------------------------------------------------------
+            # Cost Explorer (custo real) — requer permissão ce:GetCostAndUsage
+            # ----------------------------------------------------------
+            START=$(date -u -d '7 days ago' +%Y-%m-%d)
+            END=$(date -u +%Y-%m-%d)
+            CE=$(aws ce get-cost-and-usage --time-period Start=$START,End=$END \
+              --granularity DAILY --metrics UnblendedCost \
+              --query 'ResultsByTime[].Total.UnblendedCost.Amount' --output text 2>/dev/null \
+              | awk '{s+=$1} END {printf "%.2f", s}' || echo "")
+            if [ -n "$CE" ]; then
+              echo "## 💵 Custo real (Cost Explorer, últimos 7 dias): **\$$CE**"
+            else
+              echo "## 💵 Custo real: _Cost Explorer sem dados ou sem permissão (use a estimativa acima)_"
+            fi
+            echo ""
+
+            # ----------------------------------------------------------
+            # Resumo Free Tier
+            # ----------------------------------------------------------
+            echo "---"
+            echo "### ✅ Status Free Tier"
+            if [ "$RUNNING" -eq 0 ]; then
+              echo "Nenhuma instância em execução → **custo \$0**. ✅"
+            else
+              echo "$RUNNING instância(s) rodando. Free Tier: 750 h/mês de t3/t2.micro (~1 VM 24/7)."
+              echo "Estimativa mensal: **\$$TOTAL** (on-demand). Se exceder 750 h, o excedente é coberto pelos US\$100 de crédito."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "✅ Relatório gerado no Job Summary."
