@@ -117,9 +117,16 @@ jobs:
       - name: Garantir bucket S3 do state
         run: |
           set -euo pipefail
-          aws s3 mb "s3://equipe-sudo-tfstate" --region "${{ secrets.AWS_REGION }}" 2>/dev/null \
-            || echo "✓ Bucket equipe-sudo-tfstate já existe — ok"
-          echo "✓ Bucket S3 do state pronto"
+          echo "Região AWS: $AWS_REGION"
+          echo "Identidade IAM: $(aws sts get-caller-identity --query Arn --output text)"
+          echo "Buckets visíveis: $(aws s3api list-buckets --query 'Buckets[].Name' --output text 2>&1 || echo '(sem permissão s3:ListAllMyBuckets)')"
+          if aws s3api head-bucket --bucket equipe-sudo-tfstate 2>/dev/null; then
+            echo "✓ Bucket equipe-sudo-tfstate já existe"
+          else
+            echo "Criando bucket equipe-sudo-tfstate ..."
+            aws s3 mb "s3://equipe-sudo-tfstate" --region "$AWS_REGION"
+            echo "✓ Bucket criado"
+          fi
 
       # ----------------------------------------------------------
       # 5. Terraform Init (backend AWS S3)
