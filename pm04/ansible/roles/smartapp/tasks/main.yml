@@ -173,6 +173,18 @@
   when: seed_images_source | default('') | length > 0
 
 # ---------------------------------------------------------------
+# Login no GHCR (imagens privadas) — antes de subir a aplicação
+# ---------------------------------------------------------------
+- name: Login no GHCR (puxar imagens privadas)
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "{{ ghcr_username }}"
+    password: "{{ ghcr_token }}"
+    reauthorize: true
+  no_log: true
+  when: ghcr_token is defined and ghcr_token | length > 0
+
+# ---------------------------------------------------------------
 # Subir a aplicação
 # ---------------------------------------------------------------
 - name: Subir a aplicação (idempotente)

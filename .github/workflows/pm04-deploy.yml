@@ -234,7 +234,9 @@ jobs:
             --extra-vars "extra_packages=${{ github.event.inputs.extra_packages }}" \
             --extra-vars "docker_tag=${{ github.event.inputs.docker_tag }}" \
             --extra-vars "environment=${{ github.event.inputs.environment }}" \
-            --extra-vars "db_private_ip=${{ env.DB_PRIVATE_IP }}"
+            --extra-vars "db_private_ip=${{ env.DB_PRIVATE_IP }}" \
+            --extra-vars "ghcr_username=${{ secrets.GHCR_USERNAME }}" \
+            --extra-vars "ghcr_token=${{ secrets.GHCR_TOKEN }}"
           echo "✓ Configuração concluída"
 
       # ----------------------------------------------------------
