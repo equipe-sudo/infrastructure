@@ -56,7 +56,7 @@ on:
         description: "Pacotes extras a instalar (lista separada por vírgula)"
         required: true
         type: string
-        default: "curl,git,unzip"
+        default: "git,unzip"
 
 # Evita dois deploys simultâneos no mesmo ambiente
 concurrency:
