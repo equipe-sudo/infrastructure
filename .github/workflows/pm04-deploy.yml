@@ -240,6 +240,21 @@ jobs:
           echo "✓ Configuração concluída"
 
       # ----------------------------------------------------------
+      # 10b. Diagnóstico em caso de falha do Ansible
+      # ----------------------------------------------------------
+      - name: Diagnosticar falha do Ansible (logs dos containers)
+        if: failure()
+        run: |
+          set -euo pipefail
+          APP_IP="${{ env.APP_PUBLIC_IP }}"
+          echo "== Log do api-migrate =="
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "ec2-user@$APP_IP" \
+            "docker logs smart-construction-api-migrate-1 2>&1 | tail -40 || true"
+          echo "== Status dos containers =="
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no "ec2-user@$APP_IP" \
+            "docker ps -a || true"
+
+      # ----------------------------------------------------------
       # 11. Smoke test (health check)
       # ----------------------------------------------------------
       - name: Smoke test
