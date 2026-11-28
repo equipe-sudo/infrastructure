@@ -60,6 +60,18 @@
     remove_orphans: true
     timeout: 600
 
+# Garante o role smart_api mesmo que o volume já exista (o init-db.sh só roda
+# na primeira inicialização). Idempotente: o CREATE falha silenciosamente se o
+# role já existir; o ALTER sempre ajusta a senha para a do secret.
+- name: Garantir role smart_api (idempotente)
+  ansible.builtin.shell: |
+    set -e
+    PW=$(tr -d '\r\n' < "{{ backend_secrets_dir }}/api-password")
+    CID=$(docker ps -qf "name=smart-construction-db" | head -1)
+    docker exec "$CID" psql -U smart_migrator -d smart_construction -v pw="$PW" \
+      -c "CREATE ROLE smart_api LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pw'; ALTER ROLE smart_api WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pw';" 2>&1 || true
+  changed_when: false
+
 - name: Aguardar PostgreSQL aceitar conexões na porta 5432
   ansible.builtin.wait_for:
     host: 127.0.0.1
